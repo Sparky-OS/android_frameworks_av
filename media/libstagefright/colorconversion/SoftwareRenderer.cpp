@@ -134,9 +134,18 @@ void SoftwareRenderer::resetFormatIfChanged(
             case OMX_COLOR_FormatYUV420SemiPlanar:
             case OMX_TI_COLOR_FormatYUV420PackedSemiPlanar:
             {
-                halFormat = HAL_PIXEL_FORMAT_YV12;
-                bufWidth = (mCropWidth + 1) & ~1;
-                bufHeight = (mCropHeight + 1) & ~1;
+                char property[PROPERTY_VALUE_MAX];
+                bool hasYUV = true;
+                if (property_get("ro.hardware.gralloc", property, "default") > 0)
+                    if (strcmp(property, "gbm") == 0 ||
+                        strcmp(property, "minigbm_gbm_mesa") == 0 ||
+                        strcmp(property, "default") == 0)
+                        hasYUV = false;
+                if (hasYUV) {
+                    halFormat = HAL_PIXEL_FORMAT_YV12;
+                    bufWidth = (mCropWidth + 1) & ~1;
+                    bufHeight = (mCropHeight + 1) & ~1;
+                }
                 break;
             }
             case OMX_COLOR_Format24bitRGB888:
