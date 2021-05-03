@@ -35,13 +35,15 @@ static const char kSystemSeccompPolicyPath[] =
         "/system/etc/seccomp_policy/mediacodec.policy";
 static const char kVendorSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/mediacodec.policy";
+static const char kVendorExtraSeccompPolicyPath[] =
+        "/vendor_extra/etc/seccomp_policy/mediacodec.policy";
 
 int main(int argc __unused, char** argv)
 {
     strcpy(argv[0], "media.codec");
     LOG(INFO) << "mediacodecservice starting";
     signal(SIGPIPE, SIG_IGN);
-    SetUpMinijail(kSystemSeccompPolicyPath, kVendorSeccompPolicyPath);
+    SetUpMinijailList(kSystemSeccompPolicyPath, {kVendorSeccompPolicyPath, kVendorExtraSeccompPolicyPath});
 
     android::ProcessState::initWithDriver("/dev/vndbinder");
     android::ProcessState::self()->startThreadPool();

@@ -42,6 +42,8 @@ static const char kSystemSeccompPolicyPath[] =
         "/apex/com.android.media/etc/seccomp_policy/mediaextractor.policy";
 static const char kVendorSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/mediaextractor.policy";
+static const char kVendorExtraSeccompPolicyPath[] =
+        "/vendor_extra/etc/seccomp_policy/mediaextractor.policy";
 
 int main(int argc __unused, char** argv)
 {
@@ -64,7 +66,7 @@ int main(int argc __unused, char** argv)
     //calling the function before entering minijail, we can force dlopen.
     android::report_sysprop_change();
 
-    SetUpMinijail(kSystemSeccompPolicyPath, kVendorSeccompPolicyPath);
+    SetUpMinijailList(kSystemSeccompPolicyPath, {kVendorSeccompPolicyPath, kVendorExtraSeccompPolicyPath});
 
     strcpy(argv[0], "media.extractor");
     sp<ProcessState> proc(ProcessState::self());

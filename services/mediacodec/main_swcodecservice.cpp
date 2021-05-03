@@ -30,6 +30,8 @@ static const char kSystemSeccompPolicyPath[] =
         "/apex/com.android.media.swcodec/etc/seccomp_policy/mediaswcodec.policy";
 static const char kVendorSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/mediaswcodec.policy";
+static const char kVendorExtraSeccompPolicyPath[] =
+        "/vendor_extra/etc/seccomp_policy/mediaswcodec.policy";
 
 extern "C" void RegisterCodecServices();
 
@@ -37,7 +39,7 @@ int main(int argc __unused, char** argv)
 {
     LOG(INFO) << "media swcodec service starting";
     signal(SIGPIPE, SIG_IGN);
-    SetUpMinijail(kSystemSeccompPolicyPath, kVendorSeccompPolicyPath);
+    SetUpMinijailList(kSystemSeccompPolicyPath, {kVendorSeccompPolicyPath, kVendorExtraSeccompPolicyPath});
     strcpy(argv[0], "media.swcodec");
 
     ::android::hardware::configureRpcThreadpool(64, false);
