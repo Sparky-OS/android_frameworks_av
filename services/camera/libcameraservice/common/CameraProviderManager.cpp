@@ -95,12 +95,21 @@ const char* FrameworkDeviceStatusToString(const CameraDeviceStatus& s) {
 hardware::hidl_vec<hardware::hidl_string>
 CameraProviderManager::HidlServiceInteractionProxyImpl::listServices() {
     hardware::hidl_vec<hardware::hidl_string> ret;
-    auto manager = hardware::defaultServiceManager1_2();
-    if (manager != nullptr) {
-        manager->listManifestByInterface(provider::V2_4::ICameraProvider::descriptor,
+    auto manager = hardware::defaultServiceManager1_1();
+    auto manager_host = hardware::defaultServiceManager1_1(true);
+    if (manager_host != nullptr) {
+        manager_host->listByInterface(provider::V2_4::ICameraProvider::descriptor,
                 [&ret](const hardware::hidl_vec<hardware::hidl_string> &registered) {
                     ret = registered;
                 });
+     }
+    if (ret.size() == 0) {
+        if (manager != nullptr) {
+            manager->listByInterface(provider::V2_4::ICameraProvider::descriptor,
+                    [&ret](const hardware::hidl_vec<hardware::hidl_string> &registered) {
+                        ret = registered;
+                    });
+        }
     }
     return ret;
 }
