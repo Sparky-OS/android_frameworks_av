@@ -705,6 +705,10 @@ void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
 
 void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     const auto &input = output.s_stereo_input;
+    if (input.u4_scope_error) {
+        ALOGW("StereoLayout: ignored HEVC scope: malformed=1 unresolved=2 allocation=4 VPS=8, mask=%u",
+              input.u4_scope_error);
+    }
     if (input.u4_picture_valid) {
         std::optional<stereo::FramePacking> event;
         stereo::FramePacking parsed;
@@ -713,6 +717,12 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
                 : stereo::parseFramePacking(input.au1_payload, input.u4_payload_size, true, &parsed);
         if (input.u4_payload_size && status == stereo::ParseResult::VALID) {
             event = parsed;
+        }
+        if (input.u4_scope_error & 6) {
+            stereo::FramePacking unknown;
+            unknown.packing.layout = static_cast<stereo::Layout>(-1);
+            unknown.persistence = 1;
+            event = unknown;
         }
         mStereoHistory.remember({input.u4_sequence, input.u4_layer_id}, input.i4_poc, event);
     }

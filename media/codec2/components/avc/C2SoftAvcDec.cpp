@@ -712,12 +712,22 @@ static void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
 
 void C2SoftAvcDec::updateStereo(const ih264d_video_decode_op_t &output) {
     const auto &input = output.s_stereo_input;
+    if (input.u4_scope_error) {
+        ALOGW("StereoLayout: ignored AVC nesting scope: malformed=1 allocation=4, mask=%u",
+              input.u4_scope_error);
+    }
     if (input.u4_picture_valid) {
         std::optional<stereo::FramePacking> event;
         stereo::FramePacking parsed;
         if (input.u4_payload_size && stereo::parseFramePacking(input.au1_payload,
                 input.u4_payload_size, false, &parsed) == stereo::ParseResult::VALID) {
             event = parsed;
+        }
+        if (input.u4_scope_error & 4) {
+            stereo::FramePacking unknown;
+            unknown.packing.layout = static_cast<stereo::Layout>(-1);
+            unknown.persistence = 1;
+            event = unknown;
         }
         mStereoHistory.remember({input.u4_sequence, 0}, input.i4_poc, event);
     }

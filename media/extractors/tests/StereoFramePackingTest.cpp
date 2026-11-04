@@ -375,3 +375,18 @@ TEST(StereoSegmentedRectTest, PictureHistoryAndCancellation) {
 }  // namespace
 }  // namespace stereo
 }  // namespace android
+
+TEST(StereoFramePackingTest, UnresolvedScopeDoesNotReviveKnownArrangement) {
+    android::stereo::FramePackingHistory history;
+    android::stereo::FramePacking known, unknown;
+    known.persistence = unknown.persistence = 1;
+    known.packing.layout = android::stereo::SIDE_BY_SIDE;
+    unknown.packing.layout = static_cast<android::stereo::Layout>(-1);
+    history.remember({1,0}, 0, known);
+    history.remember({1,0}, 1, unknown);
+    history.remember({1,0}, 2, std::nullopt);
+    ASSERT_TRUE(history.resolve({1,0}, 2));
+    EXPECT_EQ(-1, history.resolve({1,0}, 2)->packing.layout);
+    history.remember({1,0}, 3, known);
+    EXPECT_EQ(android::stereo::SIDE_BY_SIDE, history.resolve({1,0}, 3)->packing.layout);
+}
