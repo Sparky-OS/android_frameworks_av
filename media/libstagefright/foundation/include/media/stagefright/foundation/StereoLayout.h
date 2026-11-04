@@ -90,6 +90,35 @@ inline bool fromMatroska(uint64_t value, Packing *packing) {
     return true;
 }
 
+// H.264 V16 Table D-9; H.273 V4 Table 5 assigns only the first seven.
+inline bool fromFramePacking(uint32_t value, bool cicp, Packing *packing) {
+    static constexpr Layout kLayouts[] = {CHECKERBOARD, COLUMN_INTERLEAVED,
+        ROW_INTERLEAVED, SIDE_BY_SIDE, TOP_BOTTOM, TEMPORAL_INTERLEAVED, MONO, TILED};
+    if (value >= (cicp ? 7u : 8u)) return false;
+    *packing = {kLayouts[value], UNSPECIFIED};
+    return true;
+}
+
+// ISO/IEC 23000-11:2009/Amd.3:2014, Tables 4 and 5.
+inline bool fromSvaf(uint8_t value, bool leftFirst, Packing *packing) {
+    static constexpr Layout kLayouts[] = {SIDE_BY_SIDE, COLUMN_INTERLEAVED,
+        TEMPORAL_INTERLEAVED, SEPARATE_VIEWS, TOP_BOTTOM, SIDE_BY_SIDE, TOP_BOTTOM};
+    if (value >= sizeof(kLayouts) / sizeof(kLayouts[0])) return false;
+    *packing = {kLayouts[value], leftFirst ? LEFT_FIRST : RIGHT_FIRST};
+    return true;
+}
+
+// H.262 Annex L, including the 2013 quincunx amendment.
+inline bool fromMpeg2Arrangement(uint32_t value, Packing *packing) {
+    switch (value) {
+        case 3:
+        case 0x23: *packing = {SIDE_BY_SIDE, LEFT_FIRST}; return true;
+        case 4: *packing = {TOP_BOTTOM, LEFT_FIRST}; return true;
+        case 8: *packing = {MONO, UNSPECIFIED}; return true;
+        default: return false;
+    }
+}
+
 // Google Spherical Video V2, Stereoscopic 3D Video Box.
 inline bool fromSt3d(uint8_t value, Packing *packing) {
     static constexpr Packing kModes[] = {

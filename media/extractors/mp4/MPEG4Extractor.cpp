@@ -846,6 +846,25 @@ static bool convertTimeToDate(int64_t time_1904, String8 *s) {
     return false;
 }
 
+static status_t setStereoPacking(AMediaFormat *meta, const stereo::Packing &packing,
+                                 const char *source) {
+    int32_t layout, order = stereo::UNSPECIFIED;
+    stereo::ViewOrder mergedOrder = packing.order;
+    if (AMediaFormat_getInt32(meta, "stereo-layout", &layout)) {
+        AMediaFormat_getInt32(meta, "stereo-view-order", &order);
+        if (layout != packing.layout || (order != stereo::UNSPECIFIED
+                && packing.order != stereo::UNSPECIFIED && order != packing.order)) {
+            ALOGE("Conflicting source stereo declarations (%s)", source);
+            return ERROR_MALFORMED;
+        }
+        if (mergedOrder == stereo::UNSPECIFIED) mergedOrder = stereo::ViewOrder(order);
+    }
+    AMediaFormat_setInt32(meta, "stereo-layout", packing.layout);
+    AMediaFormat_setInt32(meta, "stereo-view-order", mergedOrder);
+    AMediaFormat_setString(meta, "stereo-metadata-source", source);
+    return OK;
+}
+
 status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
     ALOGV("entering parseChunk %lld/%d", (long long)*offset, depth);
 
@@ -969,6 +988,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC("udta"):
         case FOURCC("ilst"):
         case FOURCC("sinf"):
+        case FOURCC("rinf"):
         case FOURCC("schi"):
         case FOURCC("edts"):
         case FOURCC("wave"):
@@ -2094,6 +2114,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         }
         case FOURCC("mp4v"):
         case FOURCC("encv"):
+        case FOURCC("resv"):
         case FOURCC("s263"):
         case FOURCC("H263"):
         case FOURCC("h263"):
@@ -2136,7 +2157,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             if (mLastTrack == NULL)
                 return ERROR_MALFORMED;
 
-            if (chunk_type != FOURCC("encv")) {
+            if (chunk_type != FOURCC("encv") && chunk_type != FOURCC("resv")) {
                 // if the chunk type is encv, we'll get the type from the frma box later
                 AMediaFormat_setString(mLastTrack->meta,
                         AMEDIAFORMAT_KEY_MIME, FourCC2MIME(chunk_type));
@@ -2626,6 +2647,83 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
+        case FOURCC("stvi"):
+        {
+            *offset += chunk_size;
+            if (!mLastTrack || mPath.size() != 10 || mPath[5] != FOURCC("stsd")
+                    || mPath[8] != FOURCC("schi")
+                    || (mPath[7] != FOURCC("rinf") && mPath[7] != FOURCC("sinf"))) {
+                return OK;
+            }
+            if (mLastTrack->hasStvi || chunk_data_size < 16) return ERROR_MALFORMED;
+            mLastTrack->hasStvi = true;
+            auto data = heapbuffer<uint8_t>(chunk_data_size);
+            if (!data) return NO_MEMORY;
+            if (mDataSource->readAt(data_offset, data.get(), chunk_data_size) != chunk_data_size) {
+                return ERROR_IO;
+            }
+            AMediaFormat_setBuffer(mLastTrack->meta, "stereo-stvi-data", data.get(), chunk_data_size);
+            if (U32_AT(data.get()) != 0) {
+                ALOGW("Unrecognized stvi version/flags; no layout inferred");
+                break;
+            }
+            uint32_t singleView = U32_AT(data.get() + 4);
+            uint32_t scheme = U32_AT(data.get() + 8);
+            uint32_t length = U32_AT(data.get() + 12);
+            if (singleView > 3 || length > uint64_t(chunk_data_size - 16)) {
+                return ERROR_MALFORMED;
+            }
+            AMediaFormat_setInt64(mLastTrack->meta, "stereo-stvi-scheme", scheme);
+            AMediaFormat_setInt32(mLastTrack->meta, "stereo-single-view-allowed", singleView);
+            const uint8_t *indication = data.get() + 16;
+            stereo::Packing packing;
+            bool recognized = false;
+            int32_t quincunx = -1;
+            // ISO/IEC 14496-12:2026 13.5.4.2.3, pp. 218-219.
+            switch (scheme) {
+                case 1:
+                    if (length != 4) return ERROR_MALFORMED;
+                    recognized = stereo::fromFramePacking(U32_AT(indication), false, &packing);
+                    break;
+                case 2:
+                    if (length != 4) return ERROR_MALFORMED;
+                    recognized = stereo::fromMpeg2Arrangement(U32_AT(indication), &packing);
+                    if (recognized) quincunx = U32_AT(indication) == 0x23;
+                    break;
+                case 3:
+                    if (length != 2 || (indication[1] & 0xfe)) return ERROR_MALFORMED;
+                    recognized = stereo::fromSvaf(indication[0], indication[1] & 1, &packing);
+                    break;
+                case 4:
+                case 5:
+                    if (length != (scheme == 4 ? 2u : 3u) || (indication[1] & 0xfe)) {
+                        return ERROR_MALFORMED;
+                    }
+                    recognized = stereo::fromFramePacking(indication[0], true, &packing);
+                    if (recognized) {
+                        uint32_t interpretation = scheme == 4 ? 1 : indication[2];
+                        if (interpretation > 2) recognized = false;
+                        else {
+                            packing.order = packing.layout == stereo::MONO ? stereo::UNSPECIFIED
+                                    : stereo::ViewOrder(interpretation);
+                            quincunx = indication[1] & 1;
+                        }
+                    }
+                    break;
+                default: break;
+            }
+            if (recognized) {
+                status_t status = setStereoPacking(mLastTrack->meta, packing, "stvi");
+                if (status != OK) return status;
+                if (quincunx >= 0) {
+                    AMediaFormat_setInt32(mLastTrack->meta, "stereo-quincunx", quincunx);
+                }
+            } else {
+                ALOGW("Unrecognized stvi source scheme %u or packing; no layout inferred", scheme);
+            }
+            break;
+        }
+
         case FOURCC("st3d"):
         {
             *offset += chunk_size;
@@ -2652,9 +2750,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             AMediaFormat_setInt32(mLastTrack->meta, "stereo-st3d-mode", data[4]);
             stereo::Packing packing;
             if (stereo::fromSt3d(data[4], &packing)) {
-                AMediaFormat_setInt32(mLastTrack->meta, "stereo-layout", packing.layout);
-                AMediaFormat_setInt32(mLastTrack->meta, "stereo-view-order", packing.order);
-                AMediaFormat_setString(mLastTrack->meta, "stereo-metadata-source", "st3d");
+                status_t status = setStereoPacking(mLastTrack->meta, packing, "st3d");
+                if (status != OK) return status;
             } else {
                 ALOGW("Unrecognized st3d stereo_mode %u; stereo-layout absent", data[4]);
             }

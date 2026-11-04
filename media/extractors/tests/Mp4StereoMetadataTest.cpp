@@ -45,7 +45,7 @@ Bytes box(const char *type, const Bytes &payload) {
     append(out, payload);
     return out;
 }
-Bytes movie(const Bytes &extensions, bool wrongParent = false) {
+Bytes movie(const Bytes &extensions, bool wrongParent = false, bool restricted = false) {
     Bytes entry(78);
     entry[7] = 1;
     entry[25] = entry[27] = 16;
@@ -55,7 +55,7 @@ Bytes movie(const Bytes &extensions, bool wrongParent = false) {
     append(entry, box("d263", Bytes(7)));
     if (!wrongParent) append(entry, extensions);
     Bytes stsd = words({0, 1});
-    append(stsd, box("s263", entry));
+    append(stsd, box(restricted ? "resv" : "s263", entry));
     Bytes stbl = box("stsd", stsd);
     append(stbl, box("stco", words({0, 1, 8})));
     append(stbl, box("stsc", words({0, 1, 1, 1, 1})));
@@ -84,8 +84,9 @@ public:
     ~TestExtractor() override = default;
 };
 void check(const Bytes &extensions, int expectedLayout, int expectedOrder,
-           int rawMode, bool valid = true, bool wrongParent = false) {
-    Bytes file = movie(extensions, wrongParent);
+           int rawMode, bool valid = true, bool wrongParent = false,
+           int64_t stviScheme = -1, int quincunx = -1, bool restricted = false) {
+    Bytes file = movie(extensions, wrongParent, restricted);
     CDataSource source = {};
     source.handle = &file;
     source.readAt = [](void *handle, off64_t offset, void *data, size_t size) -> ssize_t {
@@ -114,6 +115,14 @@ void check(const Bytes &extensions, int expectedLayout, int expectedOrder,
     EXPECT_EQ(expectedOrder, order);
     EXPECT_EQ(rawMode >= 0, AMediaFormat_getInt32(format, "stereo-st3d-mode", &raw));
     EXPECT_EQ(rawMode, raw);
+    int64_t actualScheme = -1;
+    EXPECT_EQ(stviScheme >= 0,
+              AMediaFormat_getInt64(format, "stereo-stvi-scheme", &actualScheme));
+    EXPECT_EQ(stviScheme, actualScheme);
+    int32_t actualQuincunx = -1;
+    EXPECT_EQ(quincunx >= 0,
+              AMediaFormat_getInt32(format, "stereo-quincunx", &actualQuincunx));
+    EXPECT_EQ(quincunx, actualQuincunx);
     AMediaFormat_delete(format);
 }
 class Mp4StereoMetadataTest : public testing::TestWithParam<int> {};
@@ -142,6 +151,96 @@ TEST(Mp4StereoMetadataTest, DuplicateAfterUnknownVersion) {
 }
 TEST(Mp4StereoMetadataTest, WrongParent) {
     check(box("st3d", {0,0,0,0,2}), -1,-1,-1,true,true);
+}
+Bytes stviBody(uint32_t scheme, const Bytes &indication) {
+    Bytes body = words({0, 3, scheme, uint32_t(indication.size())});
+    append(body, indication);
+    return body;
+}
+Bytes restriction(const Bytes &body) {
+    Bytes rinf = box("frma", {'s','2','6','3'});
+    append(rinf, box("schm", words({0, 0x73747669, 0})));
+    append(rinf, box("schi", box("stvi", body)));
+    return box("rinf", rinf);
+}
+void checkStvi(uint32_t scheme, const Bytes &indication, int layout, int order,
+               int quincunx = -1) {
+    check(restriction(stviBody(scheme, indication)), layout, order, -1,
+          true, false, scheme, quincunx, true);
+}
+TEST(Mp4StereoMetadataTest, StviAvcVocabularyHasUnspecifiedOrder) {
+    constexpr int layouts[] = {3,4,5,1,2,6,0,7};
+    for (uint32_t mode = 0; mode < 8; ++mode) {
+        checkStvi(1, words({mode}), layouts[mode], 0);
+    }
+    checkStvi(1, words({8}), -1, -1);
+}
+TEST(Mp4StereoMetadataTest, StviMpeg2Vocabulary) {
+    checkStvi(2, words({3}), 1, 1, 0);
+    checkStvi(2, words({4}), 2, 1, 0);
+    checkStvi(2, words({8}), 0, 0, 0);
+    checkStvi(2, words({0x23}), 1, 1, 1);
+    checkStvi(2, words({5}), -1, -1);
+}
+TEST(Mp4StereoMetadataTest, StviSvafVocabularyAndBothOrders) {
+    constexpr int layouts[] = {1,4,6,11,2,1,2};
+    for (uint8_t mode = 0; mode < 7; ++mode) {
+        checkStvi(3, {mode, 0}, layouts[mode], 2);
+        checkStvi(3, {mode, 1}, layouts[mode], 1);
+    }
+    checkStvi(3, {7, 1}, -1, -1);
+}
+TEST(Mp4StereoMetadataTest, StviCicpWithImplicitAndExplicitInterpretation) {
+    constexpr int layouts[] = {3,4,5,1,2,6,0};
+    for (uint8_t mode = 0; mode < 7; ++mode) {
+        for (uint8_t q : {0, 1}) {
+            checkStvi(4, {mode, q}, layouts[mode], mode == 6 ? 0 : 1, q);
+            for (uint8_t order : {0, 1, 2}) {
+                checkStvi(5, {mode, q, order}, layouts[mode], mode == 6 ? 0 : order, q);
+            }
+        }
+    }
+    checkStvi(4, {7, 0}, -1, -1);
+    checkStvi(5, {7, 0, 1}, -1, -1);
+    checkStvi(5, {3, 0, 3}, -1, -1);
+}
+TEST(Mp4StereoMetadataTest, StviUnknownSchemePreservesRawOnly) {
+    checkStvi(6, {3, 0, 1}, -1, -1);
+    checkStvi(0xffffffffu, {}, -1, -1);
+}
+TEST(Mp4StereoMetadataTest, StviIncorrectKnownLengths) {
+    for (uint32_t scheme : {1,2,3,4,5}) {
+        check(restriction(stviBody(scheme, {3})), -1,-1,-1,false,false,-1,-1,true);
+    }
+}
+TEST(Mp4StereoMetadataTest, StviLengthCannotCrossItsBox) {
+    Bytes body = stviBody(4, {3, 0});
+    put32(body, 12, 0xffffffffu);
+    check(restriction(body), -1,-1,-1,false,false,-1,-1,true);
+}
+TEST(Mp4StereoMetadataTest, StviReservedBitsAreNotViewOrder) {
+    check(restriction(stviBody(3, {0, 2})), -1,-1,-1,false,false,-1,-1,true);
+    check(restriction(stviBody(4, {3, 2})), -1,-1,-1,false,false,-1,-1,true);
+    check(restriction(stviBody(5, {3, 2, 1})), -1,-1,-1,false,false,-1,-1,true);
+}
+TEST(Mp4StereoMetadataTest, StviOptionalChildDoesNotChangeIndicationLength) {
+    Bytes body = stviBody(5, {3, 1, 2});
+    append(body, box("free", {1,2,3}));
+    check(restriction(body), 1,2,-1,true,false,5,1,true);
+}
+TEST(Mp4StereoMetadataTest, StviAndSt3dConflictFailsInEitherOrder) {
+    Bytes first = restriction(stviBody(5, {3, 0, 2}));
+    Bytes second = box("st3d", {0,0,0,0,2});
+    Bytes boxes = first;
+    append(boxes, second);
+    check(boxes, -1,-1,-1,false,false,-1,-1,true);
+    append(second, first);
+    check(second, -1,-1,-1,false,false,-1,-1,true);
+}
+TEST(Mp4StereoMetadataTest, StviAndSt3dAgree) {
+    Bytes boxes = restriction(stviBody(5, {3, 0, 1}));
+    append(boxes, box("st3d", {0,0,0,0,2}));
+    check(boxes, 1,1,2,true,false,5,0,true);
 }
 }  // namespace
 }  // namespace android
