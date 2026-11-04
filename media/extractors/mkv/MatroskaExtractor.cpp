@@ -24,6 +24,7 @@
 
 #include <media/stagefright/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
+#include <media/stagefright/foundation/StereoLayout.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -2066,6 +2067,20 @@ void MatroskaExtractor::addTracks() {
                 }
                 AMediaFormat_setInt32(meta, AMEDIAFORMAT_KEY_WIDTH, (int32_t)width);
                 AMediaFormat_setInt32(meta, AMEDIAFORMAT_KEY_HEIGHT, (int32_t)height);
+
+                if (vtrack->HasStereoMode()) {
+                    const uint64_t mode = vtrack->GetStereoMode();
+                    stereo::Packing packing;
+                    AMediaFormat_setInt64(meta, "stereo-matroska-mode", mode);
+                    if (stereo::fromMatroska(mode, &packing)) {
+                        AMediaFormat_setInt32(meta, "stereo-layout", packing.layout);
+                        AMediaFormat_setInt32(meta, "stereo-view-order", packing.order);
+                        AMediaFormat_setString(meta, "stereo-metadata-source", "matroska");
+                    } else {
+                        ALOGW("Unrecognized Matroska StereoMode %llu; stereo-layout absent",
+                                (unsigned long long)mode);
+                    }
+                }
 
                 // setting display width/height is optional
                 const long long displayUnit = vtrack->GetDisplayUnit();

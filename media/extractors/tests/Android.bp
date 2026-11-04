@@ -101,3 +101,24 @@ cc_test {
         ],
     },
 }
+
+cc_test_host {
+    name: "StereoMetadataTest",
+    srcs: ["StereoMetadataTest.cpp"],
+    static_libs: [
+        "libmkvextractor",
+        "libmediandk_format",
+        "libmedia_ndkformatpriv",
+        "libstagefright_foundation",
+        "libstagefright_foundation_colorutils_ndk",
+        "libstagefright_metadatautils",
+        "libstagefright_flacdec",
+        "libwebm",
+        "libFLAC",
+        "libutils",
+        "libcutils",
+        "liblog",
+    ],
+    cflags: ["-Wall", "-Werror"],
+    compile_multilib: "first",
+}
