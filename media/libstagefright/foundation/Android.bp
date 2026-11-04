@@ -95,6 +95,7 @@ cc_defaults {
         "MetaData.cpp",
         "MetaDataBase.cpp",
         "OpusHeader.cpp",
+        "StereoFramePacking.cpp",
         "avc_utils.cpp",
         "base64.cpp",
         "hexdump.cpp",

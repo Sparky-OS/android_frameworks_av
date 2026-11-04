@@ -143,3 +143,11 @@ cc_test_host {
     cflags: ["-Wall", "-Werror"],
     compile_multilib: "first",
 }
+
+cc_test_host {
+    name: "StereoFramePackingTest",
+    srcs: ["StereoFramePackingTest.cpp"],
+    static_libs: ["libstagefright_foundation", "libutils", "libcutils", "liblog"],
+    cflags: ["-Wall", "-Werror"],
+    compile_multilib: "first",
+}
