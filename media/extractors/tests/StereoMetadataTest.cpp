@@ -53,7 +53,8 @@ Bytes element(uint32_t id, const Bytes &data) {
     return out;
 }
 
-Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1) {
+Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1,
+               bool forceStereoMode = false) {
     Bytes header;
     for (auto pair : {std::pair<uint32_t, uint64_t>(0x4286, 1), {0x42f7, 1},
                       {0x42f2, 4}, {0x42f3, 8}, {0x4287, 4}, {0x4285, 2}}) {
@@ -63,7 +64,7 @@ Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid =
     Bytes file = element(0x1a45dfa3, header);
     Bytes video = element(0xb0, number(16));
     append(video, element(0xba, number(16)));
-    if (stereoMode >= 0) append(video, element(0x53b8, number(stereoMode)));
+    if (stereoMode >= 0 || forceStereoMode) append(video, element(0x53b8, number(stereoMode)));
     Bytes track = element(0xd7, number(1));
     append(track, element(0x73c5, number(uid)));
     append(track, element(0x83, number(1)));
@@ -109,8 +110,8 @@ CDataSource makeSource(Bytes &file) {
     return source;
 }
 
-void check(int64_t mode, int expectedLayout, int expectedOrder) {
-    Bytes file = matroska(mode);
+void check(int64_t mode, int expectedLayout, int expectedOrder, bool forceStereoMode = false) {
+    Bytes file = matroska(mode, {}, 1, forceStereoMode);
     CDataSource source = makeSource(file);
     TestExtractor extractor(new DataSourceHelper(&source));
     ASSERT_EQ(1u, extractor.countTracks());
@@ -124,7 +125,8 @@ void check(int64_t mode, int expectedLayout, int expectedOrder) {
               AMediaFormat_getInt32(format, "stereo-view-order", &order));
     EXPECT_EQ(expectedOrder, order);
     int64_t raw = -1;
-    EXPECT_EQ(mode >= 0, AMediaFormat_getInt64(format, "stereo-matroska-mode", &raw));
+    EXPECT_EQ(mode >= 0 || forceStereoMode,
+              AMediaFormat_getInt64(format, "stereo-matroska-mode", &raw));
     EXPECT_EQ(mode, raw);
     AMediaFormat_delete(format);
 }
@@ -144,6 +146,12 @@ INSTANTIATE_TEST_SUITE_P(AllAssigned, MatroskaStereoMetadataTest, testing::Range
 TEST(MatroskaStereoMetadataTest, AbsentIsNotExplicitMono) { check(-1, -1, -1); }
 TEST(MatroskaStereoMetadataTest, UnassignedStaysAbsent) { check(21, -1, -1); }
 TEST(MatroskaStereoMetadataTest, LargeUnassignedStaysAbsent) { check(0x7fffffff, -1, -1); }
+TEST(MatroskaStereoMetadataTest, UnsignedHighBitDoesNotRejectTrack) {
+    check(INT64_MIN, -1, -1, true);
+}
+TEST(MatroskaStereoMetadataTest, UnsignedAllOnesIsNotMissing) {
+    check(-1, -1, -1, true);
+}
 
 
 Bytes videoTrack(uint64_t numberValue, uint64_t uid, const Bytes &operation = {}) {
