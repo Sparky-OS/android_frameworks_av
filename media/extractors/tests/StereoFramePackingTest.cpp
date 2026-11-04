@@ -57,8 +57,10 @@ std::vector<uint8_t> payload(bool hevc, uint32_t type, uint32_t order = 1,
         if (hevc) w.bits(period != 0, 1); else w.ue(period);
     }
     w.bits(extras, 1);
-    w.bits(1, 1);
-    while (w.count & 7) w.bits(0, 1);
+    if (w.count & 7) {
+        w.bits(1, 1);
+        while (w.count & 7) w.bits(0, 1);
+    }
     return w.bytes;
 }
 ParseResult parse(const std::vector<uint8_t> &data, bool hevc, FramePacking *out) {
@@ -93,7 +95,7 @@ TEST(StereoFramePackingTest, CancellationBothSyntaxes) {
 TEST(StereoFramePackingTest, AllByteTruncationsLeaveDestinationUntouched) {
     for (bool hevc : {false, true}) {
         auto data = payload(hevc, 3, 1, 255, false, 16384, true);
-        for (size_t size = 0; size + 1 < data.size(); ++size) {
+        for (size_t size = 0; size < data.size(); ++size) {
             FramePacking f;
             f.id = 1234;
             EXPECT_EQ(ParseResult::MALFORMED, parseFramePacking(data.data(), size, hevc, &f));
@@ -136,6 +138,17 @@ TEST(StereoFramePackingTest, RetainsIndependentGeometryFields) {
         EXPECT_EQ(1u, f.frame1SelfContained);
         for (int i = 0; i < 4; ++i) EXPECT_EQ(uint32_t(i + 1), f.grid[i]);
         EXPECT_EQ(hevc ? 1u : 0u, f.upsampledAspectRatio);
+    }
+}
+TEST(StereoFramePackingTest, InvalidSamplingCombinationsAreMalformed) {
+    auto checker = payload(false, 0);
+    checker[1] &= ~0x40;
+    FramePacking f;
+    EXPECT_EQ(ParseResult::MALFORMED, parse(checker, false, &f));
+    for (bool hevc : {false, true}) {
+        auto temporal = payload(hevc, 5);
+        temporal[1] |= 0x40;
+        EXPECT_EQ(ParseResult::MALFORMED, parse(temporal, hevc, &f));
     }
 }
 TEST(StereoFramePackingTest, GolombOverflowIsMalformed) {
