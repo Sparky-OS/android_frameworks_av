@@ -2085,7 +2085,7 @@ bool CCodecBufferChannel::handleWork(
                     pictureFormat->setInt32("stereo-upsampled-aspect-ratio", stereoInfo->upsampledAspectRatio);
                     pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
                     pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
-                    pictureFormat->setString("stereo-metadata-source", "avc-sei");
+                    pictureFormat->setString("stereo-metadata-source", stereoInfo->codec == 2 ? "hevc-sei" : "avc-sei");
                 }
             }
         }

@@ -1603,6 +1603,7 @@ struct C2StereoSourceStruct {
     uint32_t upsampledAspectRatio = 0;
     uint32_t sequence = 0;
     int32_t poc = 0;
+    uint32_t codec = 1; // 1 AVC, 2 HEVC
     DEFINE_AND_DESCRIBE_BASE_C2STRUCT(StereoSource)
     C2FIELD(layout, "layout")
     C2FIELD(order, "view-order")
@@ -1625,6 +1626,7 @@ struct C2StereoSourceStruct {
     C2FIELD(upsampledAspectRatio, "upsampled-aspect-ratio")
     C2FIELD(sequence, "sequence")
     C2FIELD(poc, "picture-poc")
+    C2FIELD(codec, "codec")
 };
 typedef C2StreamParam<C2Info, C2StereoSourceStruct, kParamIndexStereoSource>
         C2StreamStereoSourceInfo;

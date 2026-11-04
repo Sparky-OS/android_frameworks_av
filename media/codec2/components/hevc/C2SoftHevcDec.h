@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_HEVC_DEC_H_
 
 #include <media/stagefright/foundation/ColorUtils.h>
+#include <media/stagefright/foundation/StereoFramePacking.h>
 
 #include <atomic>
 #include <inttypes.h>
@@ -85,6 +86,9 @@ struct C2SoftHevcDec : public SimpleC2Component {
             const ColorAspects &otherAspects, const ColorAspects &preferredAspects);
     status_t handleColorAspectsChange();
     c2_status_t ensureDecoderState(const std::shared_ptr<C2BlockPool> &pool);
+    void updateStereo(const ihevcd_cxa_video_decode_op_t &output);
+    stereo::FramePackingHistory mStereoHistory;
+    C2StereoSourceStruct mStereoOutput;
     void finishWork(uint64_t index, const std::unique_ptr<C2Work> &work);
     status_t setFlushMode();
     c2_status_t drainInternal(
