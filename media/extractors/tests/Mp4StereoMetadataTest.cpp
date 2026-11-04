@@ -15,6 +15,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "StereoMetadataTestUtils.h"
 #include <media/stagefright/foundation/ABase.h>
 #include <SampleTable.h>
 #include <MPEG4Extractor.h>
@@ -113,6 +114,7 @@ void check(const Bytes &extensions, int expectedLayout, int expectedOrder,
     if (!valid) return;
     AMediaFormat *format = AMediaFormat_new();
     ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, 0, 0));
+    bridgeStereoFormat(format);
     int32_t layout = -1, order = -1, raw = -1;
     EXPECT_EQ(expectedLayout >= 0, AMediaFormat_getInt32(format, "stereo-layout", &layout));
     EXPECT_EQ(expectedLayout, layout);

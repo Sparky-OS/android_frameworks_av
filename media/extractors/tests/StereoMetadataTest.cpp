@@ -15,6 +15,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "StereoMetadataTestUtils.h"
 #include <MatroskaExtractor.h>
 #include <algorithm>
 #include <cstring>
@@ -115,6 +116,7 @@ void check(int64_t mode, int expectedLayout, int expectedOrder) {
     ASSERT_EQ(1u, extractor.countTracks());
     AMediaFormat *format = AMediaFormat_new();
     ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, 0, 0));
+    bridgeStereoFormat(format);
     int32_t layout = -1, order = -1;
     EXPECT_EQ(expectedLayout >= 0, AMediaFormat_getInt32(format, "stereo-layout", &layout));
     EXPECT_EQ(expectedLayout, layout);
@@ -184,6 +186,7 @@ void checkGroup(uint64_t role, bool missingReference = false) {
     for (size_t i = 0; i < (missingReference ? 1u : 2u); ++i) {
         AMediaFormat *format = AMediaFormat_new();
         ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, i, 0));
+        bridgeStereoFormat(format);
         int32_t layout;
         EXPECT_FALSE(AMediaFormat_getInt32(format, "stereo-layout", &layout));
         void *raw;

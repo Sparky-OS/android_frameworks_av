@@ -737,6 +737,7 @@ static void parseAV1ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
 
 static std::vector<std::pair<const char *, uint32_t>> stringMappings {
     {
+        { "stereo-metadata-source", kKeyStereoMetadataSource },
         { "album", kKeyAlbum },
         { "albumartist", kKeyAlbumArtist },
         { "artist", kKeyArtist },
@@ -763,6 +764,9 @@ static std::vector<std::pair<const char *, uint32_t>> floatMappings {
 
 static std::vector<std::pair<const char*, uint32_t>> int64Mappings {
     {
+        { "stereo-matroska-mode", kKeyStereoMatroskaMode },
+        { "stereo-stvi-scheme", kKeyStereoStviScheme },
+        { "stereo-vexu-packing", kKeyStereoVexuPacking },
         { "exif-offset", kKeyExifOffset},
         { "exif-size", kKeyExifSize},
         { "xmp-offset", kKeyXmpOffset},
@@ -779,6 +783,16 @@ static std::vector<std::pair<const char*, uint32_t>> int64Mappings {
 
 static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
     {
+        { "stereo-layout", kKeyStereoLayout },
+        { "stereo-view-order", kKeyStereoViewOrder },
+        { "stereo-st3d-mode", kKeyStereoSt3dMode },
+        { "stereo-single-view-allowed", kKeyStereoSingleViewAllowed },
+        { "stereo-quincunx", kKeyStereoQuincunx },
+        { "stereo-svmi-composition", kKeyStereoSvmiComposition },
+        { "stereo-view-presence", kKeyStereoViewPresence },
+        { "stereo-additional-views", kKeyStereoAdditionalViews },
+        { "stereo-views-reversed", kKeyStereoViewsReversed },
+        { "stereo-hero-view", kKeyStereoHeroView },
         { "loop", kKeyAutoLoop },
         { "time-scale", kKeyTimeScale },
         { "crypto-mode", kKeyCryptoMode },
@@ -799,6 +813,12 @@ static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
 
 static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
     {
+        { "stereo-stvi-data", kKeyStereoStviData },
+        { "stereo-svmi-data", kKeyStereoSvmiData },
+        { "stereo-sample-layouts", kKeyStereoSampleLayouts },
+        { "stereo-track-groups", kKeyStereoTrackGroups },
+        { "stereo-track-uid", kKeyStereoTrackUid },
+        { "stereo-vexu-data", kKeyStereoVexuData },
         { "albumart", kKeyAlbumArt },
         { "audio-presentation-info", kKeyAudioPresentationInfo },
         { "pssh", kKeyPssh },

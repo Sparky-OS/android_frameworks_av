@@ -107,6 +107,9 @@ cc_test_host {
     srcs: ["StereoMetadataTest.cpp"],
     static_libs: [
         "libmkvextractor",
+        "libstagefright_mpeg2extractor",
+        "libmedia_helper",
+        "libstagefright_esds",
         "libmediandk_format",
         "libmedia_ndkformatpriv",
         "libstagefright_foundation",
@@ -128,6 +131,8 @@ cc_test_host {
     srcs: ["Mp4StereoMetadataTest.cpp"],
     static_libs: [
         "libmp4extractor",
+        "libstagefright_mpeg2extractor",
+        "libmedia_helper",
         "libmediandk_format",
         "libmedia_ndkformatpriv",
         "libstagefright_foundation",

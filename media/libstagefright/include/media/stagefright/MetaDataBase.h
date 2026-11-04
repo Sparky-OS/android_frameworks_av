@@ -29,6 +29,28 @@ namespace android {
 
 // The following keys map to int32_t data unless indicated otherwise.
 enum {
+    // Source stereo metadata. These keys do not select a display output mode.
+    kKeyStereoLayout = 'stLy', // int32
+    kKeyStereoViewOrder = 'stVo', // int32
+    kKeyStereoSt3dMode = 'st3M', // int32
+    kKeyStereoSingleViewAllowed = 'stSa', // int32
+    kKeyStereoQuincunx = 'stQx', // int32
+    kKeyStereoSvmiComposition = 'stCm', // int32
+    kKeyStereoViewPresence = 'stPr', // int32
+    kKeyStereoAdditionalViews = 'stAv', // int32
+    kKeyStereoViewsReversed = 'stRv', // int32
+    kKeyStereoHeroView = 'stHv', // int32
+    kKeyStereoMatroskaMode = 'stMk', // int64
+    kKeyStereoStviScheme = 'stSc', // int64
+    kKeyStereoVexuPacking = 'stPk', // int64
+    kKeyStereoMetadataSource = 'stSr', // string
+    kKeyStereoStviData = 'stVi', // buffer
+    kKeyStereoSvmiData = 'stVm', // buffer
+    kKeyStereoSampleLayouts = 'stSl', // buffer
+    kKeyStereoTrackGroups = 'stTg', // buffer
+    kKeyStereoTrackUid = 'stTu', // buffer
+    kKeyStereoVexuData = 'stVx', // buffer
+
     kKeyMIMEType          = 'mime',  // cstring
     kKeyWidth             = 'widt',  // int32_t, image pixel
     kKeyHeight            = 'heig',  // int32_t, image pixel
