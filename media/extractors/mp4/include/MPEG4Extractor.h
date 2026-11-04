@@ -84,6 +84,11 @@ private:
         bool skipTrack;
         bool hasSt3d = false;
         bool hasStvi = false;
+        bool hasSvmi = false;
+        int32_t stereoLayout = -1;
+        int32_t stereoOrder = 0;
+        const char *stereoSource = nullptr;
+        status_t setStereoPacking(int32_t layout, int32_t order, const char *source);
         bool elst_needs_processing;
         /* signed int, ISO Spec allows media_time = -1 for other use cases.
          * but we don't support empty edits for now.

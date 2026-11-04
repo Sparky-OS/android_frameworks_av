@@ -846,22 +846,16 @@ static bool convertTimeToDate(int64_t time_1904, String8 *s) {
     return false;
 }
 
-static status_t setStereoPacking(AMediaFormat *meta, const stereo::Packing &packing,
-                                 const char *source) {
-    int32_t layout, order = stereo::UNSPECIFIED;
-    stereo::ViewOrder mergedOrder = packing.order;
-    if (AMediaFormat_getInt32(meta, "stereo-layout", &layout)) {
-        AMediaFormat_getInt32(meta, "stereo-view-order", &order);
-        if (layout != packing.layout || (order != stereo::UNSPECIFIED
-                && packing.order != stereo::UNSPECIFIED && order != packing.order)) {
-            ALOGE("Conflicting source stereo declarations (%s)", source);
-            return ERROR_MALFORMED;
-        }
-        if (mergedOrder == stereo::UNSPECIFIED) mergedOrder = stereo::ViewOrder(order);
+status_t MPEG4Extractor::Track::setStereoPacking(int32_t layout, int32_t order,
+                                                    const char *source) {
+    if (stereoLayout >= 0 && (stereoLayout != layout || (stereoOrder != stereo::UNSPECIFIED
+            && order != stereo::UNSPECIFIED && stereoOrder != order))) {
+        ALOGE("Conflicting source stereo declarations (%s)", source);
+        return ERROR_MALFORMED;
     }
-    AMediaFormat_setInt32(meta, "stereo-layout", packing.layout);
-    AMediaFormat_setInt32(meta, "stereo-view-order", mergedOrder);
-    AMediaFormat_setString(meta, "stereo-metadata-source", source);
+    stereoLayout = layout;
+    if (order != stereo::UNSPECIFIED) stereoOrder = order;
+    stereoSource = source;
     return OK;
 }
 
@@ -2647,6 +2641,43 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
+        case FOURCC("svmi"):
+        {
+            *offset += chunk_size;
+            if (!mLastTrack || mPath.size() != 6 || mPath[4] != FOURCC("stbl")) return OK;
+            if (mLastTrack->hasSvmi || chunk_data_size < 10) return ERROR_MALFORMED;
+            mLastTrack->hasSvmi = true;
+            auto data = heapbuffer<uint8_t>(chunk_data_size);
+            if (!data) return NO_MEMORY;
+            if (mDataSource->readAt(data_offset, data.get(), chunk_data_size) != chunk_data_size) {
+                return ERROR_IO;
+            }
+            AMediaFormat_setBuffer(mLastTrack->meta, "stereo-svmi-data", data.get(), chunk_data_size);
+            if (U32_AT(data.get()) != 0) {
+                ALOGW("Unrecognized svmi version/flags; no layout inferred");
+                break;
+            }
+            // ISO/IEC 23000-11:2009/Amd.3:2014 8.1.2 has changes + 1 runs.
+            uint64_t runs = uint64_t(U32_AT(data.get() + 6)) + 1;
+            if ((data[5] & 0xfe) || uint64_t(chunk_data_size) != 10 + 5 * runs) {
+                return ERROR_MALFORMED;
+            }
+            for (uint64_t i = 0; i < runs; ++i) {
+                if (!U32_AT(data.get() + 10 + 5 * i) || (data[14 + 5 * i] & 0xfe)) {
+                    return ERROR_MALFORMED;
+                }
+            }
+            AMediaFormat_setInt32(mLastTrack->meta, "stereo-svmi-composition", data[4]);
+            stereo::Packing packing;
+            if (stereo::fromSvaf(data[4], data[5] & 1, &packing)) {
+                status_t status = mLastTrack->setStereoPacking(packing.layout, packing.order, "svmi");
+                if (status != OK) return status;
+            } else {
+                ALOGW("Unrecognized svmi composition %u; no stereo layout inferred", data[4]);
+            }
+            break;
+        }
+
         case FOURCC("stvi"):
         {
             *offset += chunk_size;
@@ -2713,7 +2744,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 default: break;
             }
             if (recognized) {
-                status_t status = setStereoPacking(mLastTrack->meta, packing, "stvi");
+                status_t status = mLastTrack->setStereoPacking(packing.layout, packing.order, "stvi");
                 if (status != OK) return status;
                 if (quincunx >= 0) {
                     AMediaFormat_setInt32(mLastTrack->meta, "stereo-quincunx", quincunx);
@@ -2750,7 +2781,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             AMediaFormat_setInt32(mLastTrack->meta, "stereo-st3d-mode", data[4]);
             stereo::Packing packing;
             if (stereo::fromSt3d(data[4], &packing)) {
-                status_t status = setStereoPacking(mLastTrack->meta, packing, "st3d");
+                status_t status = mLastTrack->setStereoPacking(packing.layout, packing.order, "st3d");
                 if (status != OK) return status;
             } else {
                 ALOGW("Unrecognized st3d stereo_mode %u; stereo-layout absent", data[4]);
@@ -4736,6 +4767,47 @@ status_t MPEG4Extractor::verifyTrack(Track *track) {
         // Make sure we have all the metadata we need.
         ALOGE("stbl atom missing/invalid.");
         return ERROR_MALFORMED;
+    }
+
+    int32_t layout = track->stereoLayout, order = track->stereoOrder;
+    if (track->hasSvmi && AMediaFormat_getBuffer(track->meta, "stereo-svmi-data", &data, &size)
+            && size >= 10 && U32_AT(static_cast<uint8_t *>(data)) == 0) {
+        const uint8_t *svmi = static_cast<uint8_t *>(data);
+        const uint32_t runs = (size - 10) / 5;
+        std::vector<uint8_t> normalized;
+        auto appendWord = [&normalized](uint32_t value) {
+            for (int shift = 24; shift >= 0; shift -= 8) normalized.push_back(value >> shift);
+        };
+        appendWord(1);
+        appendWord(runs);
+        uint64_t sampleCount = 0;
+        bool hasMono = false, hasStereo = false;
+        for (uint32_t i = 0; i < runs; ++i) {
+            uint32_t count = U32_AT(svmi + 10 + 5 * i);
+            bool isStereo = svmi[14 + 5 * i] & 1;
+            sampleCount += count;
+            hasStereo |= isStereo;
+            hasMono |= !isStereo;
+            appendWord(count);
+            appendWord(isStereo ? layout : stereo::MONO);
+            appendWord(isStereo ? order : stereo::UNSPECIFIED);
+        }
+        if (track->sampleTable->countSamples() && sampleCount != track->sampleTable->countSamples()) {
+            ALOGE("svmi run lengths do not cover the sample table");
+            return ERROR_MALFORMED;
+        }
+        AMediaFormat_setBuffer(track->meta, "stereo-sample-layouts", normalized.data(), normalized.size());
+        if (hasMono) {
+            layout = hasStereo ? -1 : stereo::MONO;
+            order = stereo::UNSPECIFIED;
+        }
+    }
+    if (layout >= 0) {
+        AMediaFormat_setInt32(track->meta, "stereo-layout", layout);
+        AMediaFormat_setInt32(track->meta, "stereo-view-order", order);
+    }
+    if (track->stereoSource) {
+        AMediaFormat_setString(track->meta, "stereo-metadata-source", track->stereoSource);
     }
 
     if (track->timescale == 0) {

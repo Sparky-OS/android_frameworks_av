@@ -45,7 +45,8 @@ Bytes box(const char *type, const Bytes &payload) {
     append(out, payload);
     return out;
 }
-Bytes movie(const Bytes &extensions, bool wrongParent = false, bool restricted = false) {
+Bytes movie(const Bytes &extensions, bool wrongParent = false, bool restricted = false,
+            const Bytes &sampleExtensions = {}, uint32_t sampleCount = 1) {
     Bytes entry(78);
     entry[7] = 1;
     entry[25] = entry[27] = 16;
@@ -58,10 +59,11 @@ Bytes movie(const Bytes &extensions, bool wrongParent = false, bool restricted =
     append(stsd, box(restricted ? "resv" : "s263", entry));
     Bytes stbl = box("stsd", stsd);
     append(stbl, box("stco", words({0, 1, 8})));
-    append(stbl, box("stsc", words({0, 1, 1, 1, 1})));
-    append(stbl, box("stsz", words({0, 1, 1})));
-    append(stbl, box("stts", words({0, 1, 1, 1})));
+    append(stbl, box("stsc", words({0, 1, 1, sampleCount, 1})));
+    append(stbl, box("stsz", words({0, 1, sampleCount})));
+    append(stbl, box("stts", words({0, 1, sampleCount, 1})));
     if (wrongParent) append(stbl, extensions);
+    append(stbl, sampleExtensions);
     Bytes mdhd = words({0, 0, 0, 1000, 1, 0});
     Bytes mdia = box("mdhd", mdhd);
     append(mdia, box("minf", box("stbl", stbl)));
@@ -85,8 +87,10 @@ public:
 };
 void check(const Bytes &extensions, int expectedLayout, int expectedOrder,
            int rawMode, bool valid = true, bool wrongParent = false,
-           int64_t stviScheme = -1, int quincunx = -1, bool restricted = false) {
-    Bytes file = movie(extensions, wrongParent, restricted);
+           int64_t stviScheme = -1, int quincunx = -1, bool restricted = false,
+           const Bytes &sampleExtensions = {}, uint32_t sampleCount = 1,
+           const Bytes &expectedRuns = {}) {
+    Bytes file = movie(extensions, wrongParent, restricted, sampleExtensions, sampleCount);
     CDataSource source = {};
     source.handle = &file;
     source.readAt = [](void *handle, off64_t offset, void *data, size_t size) -> ssize_t {
@@ -123,6 +127,14 @@ void check(const Bytes &extensions, int expectedLayout, int expectedOrder,
     EXPECT_EQ(quincunx >= 0,
               AMediaFormat_getInt32(format, "stereo-quincunx", &actualQuincunx));
     EXPECT_EQ(quincunx, actualQuincunx);
+    void *runs;
+    size_t runsSize;
+    EXPECT_EQ(!expectedRuns.empty(),
+              AMediaFormat_getBuffer(format, "stereo-sample-layouts", &runs, &runsSize));
+    if (!expectedRuns.empty()) {
+        ASSERT_EQ(expectedRuns.size(), runsSize);
+        EXPECT_EQ(0, memcmp(expectedRuns.data(), runs, runsSize));
+    }
     AMediaFormat_delete(format);
 }
 class Mp4StereoMetadataTest : public testing::TestWithParam<int> {};
@@ -242,5 +254,93 @@ TEST(Mp4StereoMetadataTest, StviAndSt3dAgree) {
     append(boxes, box("st3d", {0,0,0,0,2}));
     check(boxes, 1,1,2,true,false,5,0,true);
 }
+
+Bytes svmi(uint8_t composition, uint8_t first, const std::vector<std::pair<uint32_t, uint8_t>> &runs) {
+    Bytes data = {0, 0, 0, 0, composition, first};
+    append(data, words({uint32_t(runs.size() - 1)}));
+    for (const auto &run : runs) {
+        append(data, words({run.first}));
+        data.push_back(run.second);
+    }
+    return box("svmi", data);
+}
+
+void checkSvmi(const Bytes &data, uint32_t samples, int layout, int order,
+               const Bytes &expected, bool valid = true) {
+    check({}, layout, order, -1, valid, false, -1, -1, false, data, samples, expected);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiAllCompositionsAndOrders) {
+    constexpr uint32_t layouts[] = {1, 4, 6, 11, 2, 1, 2};
+    for (uint8_t composition = 0; composition <= 6; ++composition) {
+        for (uint8_t first : {0, 1}) {
+            uint32_t order = first ? 1 : 2;
+            checkSvmi(svmi(composition, first, {{1, 1}}), 1, layouts[composition], order,
+                      words({1, 1, 1, layouts[composition], order}));
+        }
+    }
+}
+
+TEST(Mp4StereoMetadataTest, SvmiMixedRunsDoNotClaimOneTrackWideLayout) {
+    checkSvmi(svmi(0, 1, {{2, 1}, {3, 0}, {4, 1}}), 9, -1, -1,
+              words({1, 3, 2, 1, 1, 3, 0, 0, 4, 1, 1}));
+}
+
+TEST(Mp4StereoMetadataTest, SvmiAllMonoIsExplicitMono) {
+    checkSvmi(svmi(0, 1, {{2, 0}}), 2, 0, 0, words({1, 1, 2, 0, 0}));
+}
+
+TEST(Mp4StereoMetadataTest, SvmiUnknownCompositionPreservesMonoRuns) {
+    checkSvmi(svmi(7, 1, {{1, 1}, {1, 0}}), 2, -1, -1,
+              words({1, 2, 1, UINT32_MAX, 0, 1, 0, 0}));
+}
+
+TEST(Mp4StereoMetadataTest, SvmiRunsMustCoverSamplesAndBeNonempty) {
+    checkSvmi(svmi(0, 1, {{2, 1}}), 1, -1, -1, {}, false);
+    checkSvmi(svmi(0, 1, {{1, 1}}), 2, -1, -1, {}, false);
+    checkSvmi(svmi(0, 1, {{0, 1}}), 1, -1, -1, {}, false);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiReservedBitsAreNotOrderOrStereo) {
+    checkSvmi(svmi(0, 3, {{1, 1}}), 1, -1, -1, {}, false);
+    checkSvmi(svmi(0, 1, {{1, 3}}), 1, -1, -1, {}, false);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiEveryTruncationAndOversizeFails) {
+    Bytes data = {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1};
+    for (size_t length = 0; length < data.size(); ++length) {
+        checkSvmi(box("svmi", Bytes(data.begin(), data.begin() + length)), 1, -1, -1, {}, false);
+    }
+    data.push_back(0);
+    checkSvmi(box("svmi", data), 1, -1, -1, {}, false);
+    put32(data, 6, UINT32_MAX);
+    checkSvmi(box("svmi", data), 1, -1, -1, {}, false);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiDuplicateFails) {
+    Bytes data = svmi(0, 1, {{1, 1}});
+    Bytes duplicate = data;
+    append(data, duplicate);
+    checkSvmi(data, 1, -1, -1, {}, false);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiFutureVersionIsNotGuessed) {
+    checkSvmi(box("svmi", {1, 0, 0, 0, 0, 1, 0, 0, 0, 0}), 1, -1, -1, {});
+}
+
+TEST(Mp4StereoMetadataTest, SvmiOutsideSampleTableIgnored) {
+    check(svmi(0, 1, {{1, 1}}), -1, -1, -1);
+}
+
+TEST(Mp4StereoMetadataTest, SvmiConflictingStaticArrangementFails) {
+    check(box("st3d", {0, 0, 0, 0, 1}), -1, -1, -1, false, false, -1, -1, false,
+          svmi(0, 1, {{1, 1}}));
+}
+
+TEST(Mp4StereoMetadataTest, SvmiMixedRunsOverrideConsistentStaticArrangement) {
+    check(box("st3d", {0, 0, 0, 0, 2}), -1, -1, 2, true, false, -1, -1, false,
+          svmi(0, 1, {{1, 1}, {1, 0}}), 2, words({1, 2, 1, 1, 1, 1, 0, 0}));
+}
+
 }  // namespace
 }  // namespace android
