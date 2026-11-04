@@ -1913,6 +1913,61 @@ status_t MatroskaExtractor::initTrackInfo(
     return OK;
 }
 
+static void appendStereoInteger(std::vector<uint8_t> *bytes, uint64_t value, size_t width) {
+    for (size_t i = width; i > 0; --i) bytes->push_back(value >> (8 * (i - 1)));
+}
+
+static void setStereoTrackGroups(const mkvparser::Tracks *tracks,
+                                const mkvparser::Track *track, AMediaFormat *meta) {
+    std::vector<uint8_t> groups;
+    uint32_t groupCount = 0;
+    appendStereoInteger(&groups, 1, 4); // descriptor version
+    appendStereoInteger(&groups, 0, 4); // group count, filled below
+    for (size_t i = 0; i < tracks->GetTracksCount(); ++i) {
+        const mkvparser::Track *group = tracks->GetTrackByIndex(i);
+        if (!group) continue;
+        size_t count = 0;
+        const mkvparser::Track::Plane *planes = group->GetPlanes(count);
+        bool includesTrack = false, recognized = true, hasDepth = false;
+        for (size_t j = 0; j < count; ++j) {
+            includesTrack |= planes[j].uid == track->GetUid();
+            recognized &= planes[j].type <= 5;
+            hasDepth |= planes[j].type >= 3 && planes[j].type <= 5;
+            size_t matches = 0;
+            for (size_t k = 0; k < tracks->GetTracksCount(); ++k) {
+                const mkvparser::Track *other = tracks->GetTrackByIndex(k);
+                if (other && other->GetUid() == planes[j].uid) {
+                    size_t otherPlanes = 0;
+                    other->GetPlanes(otherPlanes);
+                    if (other->GetType() == mkvparser::Track::kVideo && !otherPlanes) ++matches;
+                }
+            }
+            recognized &= matches == 1;
+        }
+        if (!includesTrack) continue;
+        ++groupCount;
+        appendStereoInteger(&groups, group->GetUid(), 8);
+        appendStereoInteger(&groups, recognized
+                ? (hasDepth ? stereo::SEPARATE_DEPTH : stereo::SEPARATE_VIEWS) : -1, 4);
+        appendStereoInteger(&groups, count, 4);
+        for (size_t j = 0; j < count; ++j) {
+            appendStereoInteger(&groups, planes[j].uid, 8);
+            appendStereoInteger(&groups, planes[j].type, 8);
+        }
+        if (!recognized) {
+            ALOGW("Matroska stereo group has an unknown role or unresolved track UID; "
+                  "no group layout inferred");
+        }
+    }
+    if (groupCount) {
+        for (size_t i = 0; i < 4; ++i) groups[4 + i] = groupCount >> (8 * (3 - i));
+        AMediaFormat_setBuffer(meta, "stereo-track-groups", groups.data(), groups.size());
+        std::vector<uint8_t> uid;
+        appendStereoInteger(&uid, track->GetUid(), 8);
+        AMediaFormat_setBuffer(meta, "stereo-track-uid", uid.data(), uid.size());
+    }
+}
+
 void MatroskaExtractor::addTracks() {
     const mkvparser::Tracks *tracks = mSegment->GetTracks();
 
@@ -1924,6 +1979,13 @@ void MatroskaExtractor::addTracks() {
         if (track == NULL) {
             // Apparently this is currently valid (if unexpected) behaviour
             // of the mkv parser lib.
+            continue;
+        }
+
+        size_t planeCount = 0;
+        track->GetPlanes(planeCount);
+        if (planeCount) {
+            // RFC 9559 18.8: this virtual track has no independently decodable codec.
             continue;
         }
 
@@ -2081,6 +2143,8 @@ void MatroskaExtractor::addTracks() {
                                 (unsigned long long)mode);
                     }
                 }
+
+                setStereoTrackGroups(tracks, track, meta);
 
                 // setting display width/height is optional
                 const long long displayUnit = vtrack->GetDisplayUnit();

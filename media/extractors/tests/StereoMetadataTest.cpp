@@ -52,7 +52,7 @@ Bytes element(uint32_t id, const Bytes &data) {
     return out;
 }
 
-Bytes matroska(int64_t stereoMode) {
+Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1) {
     Bytes header;
     for (auto pair : {std::pair<uint32_t, uint64_t>(0x4286, 1), {0x42f7, 1},
                       {0x42f2, 4}, {0x42f3, 8}, {0x4287, 4}, {0x4285, 2}}) {
@@ -64,7 +64,7 @@ Bytes matroska(int64_t stereoMode) {
     append(video, element(0xba, number(16)));
     if (stereoMode >= 0) append(video, element(0x53b8, number(stereoMode)));
     Bytes track = element(0xd7, number(1));
-    append(track, element(0x73c5, number(1)));
+    append(track, element(0x73c5, number(uid)));
     append(track, element(0x83, number(1)));
     append(track, element(0x86, {'V', '_', 'V', 'P', '8'}));
     append(track, element(0xe0, video));
@@ -72,7 +72,9 @@ Bytes matroska(int64_t stereoMode) {
     append(info, element(0x4d80, {'t', 'e', 's', 't'}));
     append(info, element(0x5741, {'t', 'e', 's', 't'}));
     Bytes segment = element(0x1549a966, info);
-    append(segment, element(0x1654ae6b, element(0xae, track)));
+    Bytes tracks = element(0xae, track);
+    append(tracks, extraTracks);
+    append(segment, element(0x1654ae6b, tracks));
     Bytes cluster = element(0xe7, number(0));
     append(cluster, element(0xa3, {0x81, 0, 0, 0x80, 0}));
     append(segment, element(0x1f43b675, cluster));
@@ -86,8 +88,7 @@ public:
     ~TestExtractor() override = default;
 };
 
-void check(int64_t mode, int expectedLayout, int expectedOrder) {
-    Bytes file = matroska(mode);
+CDataSource makeSource(Bytes &file) {
     CDataSource source = {};
     source.handle = &file;
     source.readAt = [](void *handle, off64_t offset, void *data, size_t size) -> ssize_t {
@@ -104,6 +105,12 @@ void check(int64_t mode, int expectedLayout, int expectedOrder) {
     };
     source.flags = [](void *) -> uint32_t { return 0; };
     source.getUri = [](void *, char *, size_t) { return false; };
+    return source;
+}
+
+void check(int64_t mode, int expectedLayout, int expectedOrder) {
+    Bytes file = matroska(mode);
+    CDataSource source = makeSource(file);
     TestExtractor extractor(new DataSourceHelper(&source));
     ASSERT_EQ(1u, extractor.countTracks());
     AMediaFormat *format = AMediaFormat_new();
@@ -135,6 +142,119 @@ INSTANTIATE_TEST_SUITE_P(AllAssigned, MatroskaStereoMetadataTest, testing::Range
 TEST(MatroskaStereoMetadataTest, AbsentIsNotExplicitMono) { check(-1, -1, -1); }
 TEST(MatroskaStereoMetadataTest, UnassignedStaysAbsent) { check(21, -1, -1); }
 TEST(MatroskaStereoMetadataTest, LargeUnassignedStaysAbsent) { check(0x7fffffff, -1, -1); }
+
+
+Bytes videoTrack(uint64_t numberValue, uint64_t uid, const Bytes &operation = {}) {
+    Bytes track = element(0xd7, number(numberValue));
+    append(track, element(0x73c5, number(uid)));
+    append(track, element(0x83, number(1)));
+    append(track, element(0x86, {'V', '_', 'V', 'P', '8'}));
+    Bytes video = element(0xb0, number(16));
+    append(video, element(0xba, number(16)));
+    append(track, element(0xe0, video));
+    append(track, operation);
+    return element(0xae, track);
+}
+
+Bytes plane(uint64_t uid, uint64_t role) {
+    Bytes fields = element(0xe5, number(uid));
+    append(fields, element(0xe6, number(role)));
+    return element(0xe4, fields);
+}
+
+Bytes group(const Bytes &planes) { return element(0xe2, element(0xe3, planes)); }
+
+uint64_t readInteger(const uint8_t *data, size_t width) {
+    uint64_t value = 0;
+    for (size_t i = 0; i < width; ++i) value = (value << 8) | data[i];
+    return value;
+}
+
+void checkGroup(uint64_t role, bool missingReference = false) {
+    // UIDs are unsigned 64-bit, not TrackNumber or signed MediaFormat integers.
+    constexpr uint64_t first = UINT64_C(0xfedcba9876543210), second = UINT64_MAX;
+    Bytes planes = plane(first, 0);
+    append(planes, plane(second, role));
+    Bytes extra = videoTrack(2, missingReference ? 123 : second);
+    append(extra, videoTrack(3, 456, group(planes)));
+    Bytes file = matroska(-1, extra, first);
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    ASSERT_EQ(2u, extractor.countTracks()); // the virtual track is not a codec input
+    for (size_t i = 0; i < (missingReference ? 1u : 2u); ++i) {
+        AMediaFormat *format = AMediaFormat_new();
+        ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, i, 0));
+        int32_t layout;
+        EXPECT_FALSE(AMediaFormat_getInt32(format, "stereo-layout", &layout));
+        void *raw;
+        size_t size;
+        ASSERT_TRUE(AMediaFormat_getBuffer(format, "stereo-track-uid", &raw, &size));
+        ASSERT_EQ(8u, size);
+        EXPECT_EQ(i ? second : first, readInteger(static_cast<uint8_t *>(raw), size));
+        ASSERT_TRUE(AMediaFormat_getBuffer(format, "stereo-track-groups", &raw, &size));
+        ASSERT_EQ(56u, size);
+        const uint8_t *bytes = static_cast<uint8_t *>(raw);
+        EXPECT_EQ(1u, readInteger(bytes, 4));
+        EXPECT_EQ(1u, readInteger(bytes + 4, 4));
+        EXPECT_EQ(456u, readInteger(bytes + 8, 8));
+        EXPECT_EQ(missingReference || role > 5 ? UINT32_MAX : role >= 3 ? 16u : 11u,
+                  readInteger(bytes + 16, 4));
+        EXPECT_EQ(2u, readInteger(bytes + 20, 4));
+        EXPECT_EQ(first, readInteger(bytes + 24, 8));
+        EXPECT_EQ(0u, readInteger(bytes + 32, 8));
+        EXPECT_EQ(second, readInteger(bytes + 40, 8));
+        EXPECT_EQ(role, readInteger(bytes + 48, 8));
+        AMediaFormat_delete(format);
+    }
+}
+
+TEST(MatroskaStereoMetadataTest, AllPlaneRolesAndUnsignedUids) {
+    for (uint64_t role = 0; role <= 5; ++role) checkGroup(role);
+}
+
+TEST(MatroskaStereoMetadataTest, UnknownPlaneRoleRetainedWithoutGuessing) {
+    checkGroup(6);
+    checkGroup(UINT64_MAX);
+}
+
+TEST(MatroskaStereoMetadataTest, MissingPlaneReferenceIsNotARecognizedGroup) {
+    checkGroup(1, true);
+}
+
+void checkMalformedGroup(const Bytes &operation) {
+    Bytes file = matroska(-1, videoTrack(2, 456, operation));
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    EXPECT_EQ(0u, extractor.countTracks());
+}
+
+TEST(MatroskaStereoMetadataTest, PlaneRequiresUidAndRole) {
+    checkMalformedGroup(group(element(0xe4, element(0xe5, number(1)))));
+    checkMalformedGroup(group(element(0xe4, element(0xe6, number(0)))));
+    checkMalformedGroup(group(plane(0, 0)));
+    checkMalformedGroup(group({}));
+}
+
+TEST(MatroskaStereoMetadataTest, DuplicatePlaneFieldsAndOperationsFail) {
+    Bytes fields = element(0xe5, number(1));
+    append(fields, element(0xe5, number(2)));
+    append(fields, element(0xe6, number(0)));
+    checkMalformedGroup(group(element(0xe4, fields)));
+    Bytes operation = group(plane(1, 0));
+    Bytes duplicate = operation;
+    append(operation, duplicate);
+    checkMalformedGroup(operation);
+    Bytes combine = element(0xe3, plane(1, 0));
+    duplicate = combine;
+    append(combine, duplicate);
+    checkMalformedGroup(element(0xe2, combine));
+}
+
+TEST(MatroskaStereoMetadataTest, PlaneIntegerCannotExceedEightBytes) {
+    Bytes fields = element(0xe5, Bytes(9, 1));
+    append(fields, element(0xe6, number(0)));
+    checkMalformedGroup(group(element(0xe4, fields)));
+}
 
 }  // namespace
 }  // namespace android
