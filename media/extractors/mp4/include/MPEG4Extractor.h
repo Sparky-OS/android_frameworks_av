@@ -85,6 +85,7 @@ private:
         bool hasSt3d = false;
         bool hasStvi = false;
         bool hasSvmi = false;
+        bool hasVexu = false;
         int32_t stereoLayout = -1;
         int32_t stereoOrder = 0;
         const char *stereoSource = nullptr;

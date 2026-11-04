@@ -31,6 +31,7 @@
 
 #include "AC4Parser.h"
 #include "MPEG4Extractor.h"
+#include "StereoVideoInfo.h"
 #include "SampleTable.h"
 #include "ItemTable.h"
 
@@ -2638,6 +2639,46 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                                    MEDIA_MIMETYPE_VIDEO_DOLBY_VISION);
 
             *offset += chunk_size;
+            break;
+        }
+
+        case FOURCC("vexu"):
+        {
+            *offset += chunk_size;
+            if (!mLastTrack || mPath.size() != 8 || mPath[5] != FOURCC("stsd")) return OK;
+            if (mLastTrack->hasVexu) return ERROR_MALFORMED;
+            mLastTrack->hasVexu = true;
+            auto data = heapbuffer<uint8_t>(chunk_data_size);
+            if (!data && chunk_data_size) return NO_MEMORY;
+            if (mDataSource->readAt(data_offset, data.get(), chunk_data_size) != chunk_data_size) {
+                return ERROR_IO;
+            }
+            AMediaFormat_setBuffer(mLastTrack->meta, "stereo-vexu-data", data.get(), chunk_data_size);
+            StereoVideoInfo info;
+            if (!parseStereoVideoInfo(data.get(), chunk_data_size, &info)) {
+                ALOGE("Required vexu extension is invalid or not understood; ignoring track");
+                mLastTrack->skipTrack = true;
+                break;
+            }
+            if (info.viewFlags >= 0) {
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-view-presence", info.viewFlags & 3);
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-additional-views", (info.viewFlags >> 2) & 1);
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-views-reversed", (info.viewFlags >> 3) & 1);
+            }
+            if (info.hero >= 0) AMediaFormat_setInt32(mLastTrack->meta, "stereo-hero-view", info.hero);
+            if (info.packing >= 0) AMediaFormat_setInt64(mLastTrack->meta, "stereo-vexu-packing", info.packing);
+            int32_t layout = -1, order = stereo::UNSPECIFIED;
+            if (info.viewFlags >= 0 && !(info.viewFlags & 7)) {
+                layout = stereo::MONO;
+            } else if (info.viewFlags >= 0 && (info.viewFlags & 7) == 3) {
+                if (info.packing == FOURCC("side")) layout = stereo::SIDE_BY_SIDE;
+                if (info.packing == FOURCC("over")) layout = stereo::TOP_BOTTOM;
+                order = (info.viewFlags & 8) ? stereo::RIGHT_FIRST : stereo::LEFT_FIRST;
+            }
+            if (layout >= 0) {
+                status_t status = mLastTrack->setStereoPacking(layout, order, "vexu");
+                if (status != OK) return status;
+            }
             break;
         }
 
