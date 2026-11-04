@@ -708,8 +708,10 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     if (input.u4_picture_valid) {
         std::optional<stereo::FramePacking> event;
         stereo::FramePacking parsed;
-        if (input.u4_payload_size && stereo::parseFramePacking(input.au1_payload,
-                input.u4_payload_size, true, &parsed) == stereo::ParseResult::VALID) {
+        auto status = input.u4_payload_type == 138
+                ? stereo::parseSegmentedRect(input.au1_payload, input.u4_payload_size, &parsed)
+                : stereo::parseFramePacking(input.au1_payload, input.u4_payload_size, true, &parsed);
+        if (input.u4_payload_size && status == stereo::ParseResult::VALID) {
             event = parsed;
         }
         mStereoHistory.remember({input.u4_sequence, 0}, input.i4_poc, event);
@@ -727,6 +729,7 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     if (!resolved) return;
     const auto &value = *resolved;
     mStereoOutput.codec = 2;
+    mStereoOutput.payloadType = value.payloadType;
     mStereoOutput.layout = value.packing.layout;
     mStereoOutput.order = value.packing.order;
     mStereoOutput.id = value.id;

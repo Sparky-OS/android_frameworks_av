@@ -98,5 +98,23 @@ ParseResult parseFramePacking(const uint8_t *data, size_t size, bool hevc,
     return ParseResult::VALID;
 }
 
+ParseResult parseSegmentedRect(const uint8_t *data, size_t size, FramePacking *result) {
+    if (!data || !result || !size) return ParseResult::MALFORMED;
+    ABitReader bits(data, size);
+    FramePacking parsed;
+    parsed.payloadType = 138;
+    uint32_t cancel;
+    if (!bits.getBitsGraceful(1, &cancel)) return ParseResult::MALFORMED;
+    parsed.cancel = cancel;
+    if (!cancel) {
+        if (!bits.getBitsGraceful(2, &parsed.interpretation)
+                || !bits.getBitsGraceful(1, &parsed.persistence)) return ParseResult::MALFORMED;
+        if (parsed.interpretation == 3) return ParseResult::IGNORED;
+        parsed.packing = {SEGMENTED_RECTANGULAR, static_cast<ViewOrder>(parsed.interpretation)};
+    }
+    *result = parsed;
+    return ParseResult::VALID;
+}
+
 }  // namespace stereo
 }  // namespace android

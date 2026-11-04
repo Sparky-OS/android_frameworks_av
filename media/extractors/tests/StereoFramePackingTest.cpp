@@ -257,6 +257,41 @@ TEST(StereoFramePackingHistoryTest, TemporalPairIdentifiesSkippedConstituent) {
     a.currentFrameIsFrame0=0;history.remember({2,0},0,a);
     EXPECT_FALSE(history.pairStartPoc({2,0},0));
 }
+TEST(StereoSegmentedRectTest, EveryAssignedInterpretationAndPersistence) {
+    for (uint32_t order=0; order<3; ++order) for (uint32_t persistent=0; persistent<2; ++persistent) {
+        uint8_t byte=(order<<5)|(persistent<<4)|8;
+        FramePacking f;
+        ASSERT_EQ(ParseResult::VALID,parseSegmentedRect(&byte,1,&f));
+        EXPECT_EQ(SEGMENTED_RECTANGULAR,f.packing.layout);
+        EXPECT_EQ(order,uint32_t(f.packing.order));
+        EXPECT_EQ(persistent,f.persistence);
+        EXPECT_EQ(138u,f.payloadType);
+    }
+}
+TEST(StereoSegmentedRectTest, ReservedInterpretationDoesNotReplaceResult) {
+    uint8_t byte=0x78;
+    FramePacking f; f.id=99;
+    EXPECT_EQ(ParseResult::IGNORED,parseSegmentedRect(&byte,1,&f));
+    EXPECT_EQ(99u,f.id);
+}
+TEST(StereoSegmentedRectTest, CancellationAndEmptyPayload) {
+    uint8_t byte=0xc0;
+    FramePacking f;
+    ASSERT_EQ(ParseResult::VALID,parseSegmentedRect(&byte,1,&f));
+    EXPECT_TRUE(f.cancel);
+    EXPECT_EQ(ParseResult::MALFORMED,parseSegmentedRect(&byte,0,&f));
+    EXPECT_EQ(ParseResult::MALFORMED,parseSegmentedRect(nullptr,1,&f));
+}
+TEST(StereoSegmentedRectTest, PictureHistoryAndCancellation) {
+    FramePackingHistory history;FramePacking f,cancel;
+    uint8_t byte=0x38,clear=0xc0;
+    ASSERT_EQ(ParseResult::VALID,parseSegmentedRect(&byte,1,&f));
+    ASSERT_EQ(ParseResult::VALID,parseSegmentedRect(&clear,1,&cancel));
+    history.remember({1,0},0,f);history.remember({1,0},4,cancel);
+    history.remember({1,0},2,std::nullopt);
+    EXPECT_EQ(SEGMENTED_RECTANGULAR,history.resolve({1,0},2)->packing.layout);
+    EXPECT_FALSE(history.resolve({1,0},4));
+}
 }  // namespace
 }  // namespace stereo
 }  // namespace android

@@ -1604,6 +1604,7 @@ struct C2StereoSourceStruct {
     uint32_t sequence = 0;
     int32_t poc = 0;
     uint32_t codec = 1; // 1 AVC, 2 HEVC
+    uint32_t payloadType = 45;
     uint32_t pairValid = 0;
     int32_t pairPoc = 0;
     DEFINE_AND_DESCRIBE_BASE_C2STRUCT(StereoSource)
@@ -1629,6 +1630,7 @@ struct C2StereoSourceStruct {
     C2FIELD(sequence, "sequence")
     C2FIELD(poc, "picture-poc")
     C2FIELD(codec, "codec")
+    C2FIELD(payloadType, "sei-payload-type")
     C2FIELD(pairValid, "pair-valid")
     C2FIELD(pairPoc, "pair-poc")
 };

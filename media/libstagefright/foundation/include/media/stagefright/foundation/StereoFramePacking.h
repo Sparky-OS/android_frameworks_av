@@ -34,6 +34,7 @@ enum class ParseResult { VALID, IGNORED, MALFORMED };
 // Lifetime and layer scope belong to the decoder's picture/output-order path.
 struct FramePacking {
     Packing packing = {MONO, UNSPECIFIED};
+    uint32_t payloadType = 45;
     uint32_t id = 0;
     uint32_t type = 0;
     uint32_t interpretation = 0;
@@ -55,6 +56,8 @@ struct FramePacking {
 // A failed/ignored parse leaves *result unchanged.
 ParseResult parseFramePacking(const uint8_t *data, size_t size, bool hevc,
                               FramePacking *result);
+
+ParseResult parseSegmentedRect(const uint8_t *data, size_t size, FramePacking *result);
 
 // The decoder supplies every picture, including skipped/non-output pictures.
 // A scope is an explicit sequence and layer/view identity, never a timestamp.

@@ -2065,31 +2065,37 @@ bool CCodecBufferChannel::handleWork(
                 pictureFormat->removeEntryByName("stereo-pair-valid");
                 pictureFormat->removeEntryByName("stereo-pair-poc");
                 pictureFormat->removeEntryByName("stereo-metadata-source");
+                pictureFormat->removeEntryByName("stereo-sei-payload-type");
                 if (stereoInfo->layout >= 0) {
                     pictureFormat->setInt32("stereo-layout", stereoInfo->layout);
                     pictureFormat->setInt32("stereo-view-order", stereoInfo->order);
-                    pictureFormat->setInt32("stereo-arrangement-id", stereoInfo->id);
-                    pictureFormat->setInt32("stereo-arrangement-type", stereoInfo->arrangementType);
+                    if (stereoInfo->payloadType == 45) {
+                        pictureFormat->setInt32("stereo-arrangement-id", stereoInfo->id);
+                        pictureFormat->setInt32("stereo-arrangement-type", stereoInfo->arrangementType);
+                        pictureFormat->setInt32("stereo-quincunx", stereoInfo->quincunx);
+                        pictureFormat->setInt32("stereo-spatial-flipping", stereoInfo->spatialFlipping);
+                        pictureFormat->setInt32("stereo-frame0-flipped", stereoInfo->frame0Flipped);
+                        pictureFormat->setInt32("stereo-field-views", stereoInfo->fieldViews);
+                        pictureFormat->setInt32("stereo-current-frame-is-frame0", stereoInfo->currentFrameIsFrame0);
+                        pictureFormat->setInt32("stereo-frame0-self-contained", stereoInfo->frame0SelfContained);
+                        pictureFormat->setInt32("stereo-frame1-self-contained", stereoInfo->frame1SelfContained);
+                        pictureFormat->setInt32("stereo-frame0-grid-x", stereoInfo->grid0X);
+                        pictureFormat->setInt32("stereo-frame0-grid-y", stereoInfo->grid0Y);
+                        pictureFormat->setInt32("stereo-frame1-grid-x", stereoInfo->grid1X);
+                        pictureFormat->setInt32("stereo-frame1-grid-y", stereoInfo->grid1Y);
+                        pictureFormat->setInt32("stereo-repetition-period", stereoInfo->repetitionPeriod);
+                        pictureFormat->setInt32("stereo-upsampled-aspect-ratio", stereoInfo->upsampledAspectRatio);
+                    }
                     pictureFormat->setInt32("stereo-content-interpretation", stereoInfo->interpretation);
-                    pictureFormat->setInt32("stereo-quincunx", stereoInfo->quincunx);
-                    pictureFormat->setInt32("stereo-spatial-flipping", stereoInfo->spatialFlipping);
-                    pictureFormat->setInt32("stereo-frame0-flipped", stereoInfo->frame0Flipped);
-                    pictureFormat->setInt32("stereo-field-views", stereoInfo->fieldViews);
-                    pictureFormat->setInt32("stereo-current-frame-is-frame0", stereoInfo->currentFrameIsFrame0);
-                    pictureFormat->setInt32("stereo-frame0-self-contained", stereoInfo->frame0SelfContained);
-                    pictureFormat->setInt32("stereo-frame1-self-contained", stereoInfo->frame1SelfContained);
-                    pictureFormat->setInt32("stereo-frame0-grid-x", stereoInfo->grid0X);
-                    pictureFormat->setInt32("stereo-frame0-grid-y", stereoInfo->grid0Y);
-                    pictureFormat->setInt32("stereo-frame1-grid-x", stereoInfo->grid1X);
-                    pictureFormat->setInt32("stereo-frame1-grid-y", stereoInfo->grid1Y);
-                    pictureFormat->setInt32("stereo-repetition-period", stereoInfo->repetitionPeriod);
                     pictureFormat->setInt32("stereo-persistence", stereoInfo->persistence);
-                    pictureFormat->setInt32("stereo-upsampled-aspect-ratio", stereoInfo->upsampledAspectRatio);
+                    pictureFormat->setInt32("stereo-sei-payload-type", stereoInfo->payloadType);
                     pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
                     pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
                     pictureFormat->setInt32("stereo-pair-valid", stereoInfo->pairValid);
                     pictureFormat->setInt32("stereo-pair-poc", stereoInfo->pairPoc);
-                    pictureFormat->setString("stereo-metadata-source", stereoInfo->codec == 2 ? "hevc-sei" : "avc-sei");
+                    pictureFormat->setString("stereo-metadata-source",
+                            stereoInfo->payloadType == 138 ? "hevc-segmented-rect-sei"
+                            : stereoInfo->codec == 2 ? "hevc-sei" : "avc-sei");
                 }
             }
         }
