@@ -714,15 +714,15 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
         if (input.u4_payload_size && status == stereo::ParseResult::VALID) {
             event = parsed;
         }
-        mStereoHistory.remember({input.u4_sequence, 0}, input.i4_poc, event);
+        mStereoHistory.remember({input.u4_sequence, input.u4_layer_id}, input.i4_poc, event);
     }
     if (!output.s_ivd_video_decode_op_t.u4_output_present) return;
     mStereoOutput = {};
     const auto &picture = output.s_stereo_output;
     if (!picture.u4_picture_valid) return;
-    auto resolved = mStereoHistory.resolve({picture.u4_sequence, 0}, picture.i4_poc);
-    auto pair = mStereoHistory.pairStartPoc({picture.u4_sequence, 0}, picture.i4_poc);
-    mStereoHistory.retireThrough({picture.u4_sequence, 0}, picture.i4_poc);
+    auto resolved = mStereoHistory.resolve({picture.u4_sequence, picture.u4_layer_id}, picture.i4_poc);
+    auto pair = mStereoHistory.pairStartPoc({picture.u4_sequence, picture.u4_layer_id}, picture.i4_poc);
+    mStereoHistory.retireThrough({picture.u4_sequence, picture.u4_layer_id}, picture.i4_poc);
     if (!resolved) return;
     const auto &value = *resolved;
     mStereoOutput.codec = 2;
@@ -747,6 +747,8 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     mStereoOutput.persistence = value.persistence;
     mStereoOutput.upsampledAspectRatio = value.upsampledAspectRatio;
     mStereoOutput.sequence = picture.u4_sequence;
+    mStereoOutput.viewpoint = picture.u4_layer_id;
+    mStereoOutput.temporalId = picture.u4_temporal_id;
     mStereoOutput.poc = picture.i4_poc;
     mStereoOutput.pairValid = pair.has_value();
     mStereoOutput.pairPoc = pair.value_or(0);

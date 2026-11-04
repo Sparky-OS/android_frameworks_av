@@ -2061,6 +2061,8 @@ bool CCodecBufferChannel::handleWork(
                 pictureFormat->removeEntryByName("stereo-persistence");
                 pictureFormat->removeEntryByName("stereo-upsampled-aspect-ratio");
                 pictureFormat->removeEntryByName("stereo-sequence");
+                pictureFormat->removeEntryByName("stereo-viewpoint-id");
+                pictureFormat->removeEntryByName("stereo-temporal-id");
                 pictureFormat->removeEntryByName("stereo-picture-poc");
                 pictureFormat->removeEntryByName("stereo-pair-valid");
                 pictureFormat->removeEntryByName("stereo-pair-poc");
@@ -2090,6 +2092,8 @@ bool CCodecBufferChannel::handleWork(
                     pictureFormat->setInt32("stereo-persistence", stereoInfo->persistence);
                     pictureFormat->setInt32("stereo-sei-payload-type", stereoInfo->payloadType);
                     pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
+                    pictureFormat->setInt32("stereo-viewpoint-id", stereoInfo->viewpoint);
+                    pictureFormat->setInt32("stereo-temporal-id", stereoInfo->temporalId);
                     pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
                     pictureFormat->setInt32("stereo-pair-valid", stereoInfo->pairValid);
                     pictureFormat->setInt32("stereo-pair-poc", stereoInfo->pairPoc);

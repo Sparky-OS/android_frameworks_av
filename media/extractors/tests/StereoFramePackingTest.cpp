@@ -326,6 +326,17 @@ TEST(StereoFramePackingHistoryTest, TemporalPairUsesViewpointAndPicturesNotUsage
     history.remember({1, 0}, 2, b);
     EXPECT_FALSE(history.pairStartPoc({1, 0}, 2));
 }
+TEST(StereoFramePackingHistoryTest, NewSequenceInOneLayerDoesNotRetireAnotherLayer) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3, 1, 7), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 2, 9), true, &b));
+    history.remember({1, 1}, 0, a);
+    history.remember({2, 0}, 0, b);
+    history.retireThrough({2, 0}, 0);
+    ASSERT_TRUE(history.resolve({1, 1}, 0));
+    EXPECT_EQ(7u, history.resolve({1, 1}, 0)->id);
+}
 TEST(StereoSegmentedRectTest, EveryAssignedInterpretationAndPersistence) {
     for (uint32_t order=0; order<3; ++order) for (uint32_t persistent=0; persistent<2; ++persistent) {
         uint8_t byte=(order<<5)|(persistent<<4)|8;

@@ -104,7 +104,9 @@ public:
         pictures.erase(pictures.begin(), pictures.lower_bound(poc));
         pictures[poc] = value;
         for (auto it = mScopes.begin(); it != mScopes.end();) {
-            if (it->first.first < scope.first) it = mScopes.erase(it);
+            if (it->first.second == scope.second && it->first.first < scope.first) {
+                it = mScopes.erase(it);
+            }
             else ++it;
         }
     }
