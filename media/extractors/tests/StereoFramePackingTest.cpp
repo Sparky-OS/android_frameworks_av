@@ -185,7 +185,7 @@ TEST(StereoFramePackingHistoryTest, NonPersistentDoesNotReviveOlderArrangement) 
     FramePackingHistory history;
     FramePacking a, b;
     ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3), true, &a));
-    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 2, false, 0), true, &b));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 0, false, 0), true, &b));
     history.remember({1, 0}, 0, a);
     history.remember({1, 0}, 1, b);
     history.remember({1, 0}, 2, std::nullopt);
@@ -226,6 +226,36 @@ TEST(StereoFramePackingHistoryTest, TemporalPhaseCountsSkippedPicturesAndScopes)
     EXPECT_FALSE(history.resolve({1, 1}, 4));
     history.reset();
     EXPECT_FALSE(history.resolve({1, 0}, 4));
+}
+TEST(StereoFramePackingHistoryTest, DifferentUsageDoesNotCancelPersistentId) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 2, false, 0), true, &b));
+    history.remember({1,0}, 0, a);
+    history.remember({1,0}, 1, b);
+    history.remember({1,0}, 2, std::nullopt);
+    EXPECT_EQ(2u, history.resolveAll({1,0},1).size());
+    EXPECT_FALSE(history.resolve({1,0},1));
+    history.retireThrough({1,0},1);
+    ASSERT_TRUE(history.resolve({1,0},2));
+    EXPECT_EQ(SIDE_BY_SIDE,history.resolve({1,0},2)->packing.layout);
+}
+TEST(StereoFramePackingHistoryTest, TemporalPairIdentifiesSkippedConstituent) {
+    FramePackingHistory history;
+    FramePacking a;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 5, 1, 0, false, 1, true), false, &a));
+    history.remember({1,0},0,a);
+    history.remember({1,0},6,std::nullopt);
+    history.remember({1,0},2,std::nullopt);
+    history.remember({1,0},4,std::nullopt); // This frame0 may be skipped by the renderer.
+    EXPECT_EQ(0,history.pairStartPoc({1,0},0).value());
+    EXPECT_EQ(0,history.pairStartPoc({1,0},2).value());
+    history.retireThrough({1,0},2);
+    EXPECT_EQ(4,history.pairStartPoc({1,0},6).value());
+    history.reset();
+    a.currentFrameIsFrame0=0;history.remember({2,0},0,a);
+    EXPECT_FALSE(history.pairStartPoc({2,0},0));
 }
 }  // namespace
 }  // namespace stereo

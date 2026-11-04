@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <map>
+#include <vector>
 #include <optional>
 #include <tuple>
 #include <media/stagefright/foundation/StereoLayout.h>
@@ -61,37 +62,69 @@ class FramePackingHistory {
 public:
     using Scope = std::pair<uint64_t, uint32_t>;
     void remember(Scope scope, int64_t poc, const std::optional<FramePacking> &message) {
-        auto &pictures = mScopes[scope];
-        auto inserted = pictures.emplace(poc, message);
-        if (!inserted.second && message) inserted.first->second = message;
+        auto &messages = mScopes[scope][poc];
+        if (!message) return;
+        if (message->cancel) {
+            messages.clear();
+            messages.push_back(*message);
+            return;
+        }
+        for (auto &entry : messages) {
+            if (!entry.cancel && entry.id == message->id) { entry = *message; return; }
+        }
+        messages.push_back(*message);
+    }
+    std::vector<FramePacking> resolveAll(Scope scope, int64_t poc) const {
+        auto found = mScopes.find(scope);
+        if (found == mScopes.end() || !found->second.count(poc)) return {};
+        std::map<uint32_t, std::pair<FramePacking, uint64_t>> active;
+        uint64_t ordinal = 0;
+        for (const auto &[at, messages] : found->second) {
+            if (at > poc) break;
+            ++ordinal;
+            for (const auto &message : messages) {
+                if (message.cancel) active.clear();
+                else active[message.id] = {message, ordinal};
+            }
+        }
+        std::vector<FramePacking> result;
+        for (const auto &[id, entry] : active) {
+            auto value = entry.first;
+            const uint64_t following = ordinal - entry.second;
+            if (following && !value.persistence) continue;
+            if (value.type == 5) value.currentFrameIsFrame0 ^= following & 1;
+            result.push_back(value);
+        }
+        return result;
     }
     std::optional<FramePacking> resolve(Scope scope, int64_t poc) const {
-        auto found = mScopes.find(scope);
-        if (found == mScopes.end()) return std::nullopt;
-        const auto &pictures = found->second;
-        auto current = pictures.find(poc);
-        if (current == pictures.end()) return std::nullopt;
-        uint64_t following = 0;
-        for (auto at = std::make_reverse_iterator(std::next(current));
-             at != pictures.rend(); ++at, ++following) {
-            if (!at->second) continue;
-            FramePacking result = *at->second;
-            if (result.cancel || (following && !result.persistence)) return std::nullopt;
-            if (result.type == 5) result.currentFrameIsFrame0 ^= following & 1;
-            return result;
-        }
-        return std::nullopt;
+        auto values = resolveAll(scope, poc);
+        // Distinct application usages may coexist. Never guess which usage a
+        // caller means; the scalar convenience key requires a unique descriptor.
+        return values.size() == 1 ? std::optional<FramePacking>(values[0]) : std::nullopt;
     }
-    // Call only after a picture leaves the decoder in output order. Earlier
-    // pictures can no longer be emitted, so preserve just their resolved state.
-    // No fixed bound on HEVC non-output history is assumed.
+    std::optional<int64_t> pairStartPoc(Scope scope, int64_t poc) const {
+        auto current = resolve(scope, poc);
+        if (!current || current->type != 5) return std::nullopt;
+        if (current->currentFrameIsFrame0) return poc;
+        const auto &pictures = mScopes.at(scope);
+        auto at = pictures.find(poc);
+        if (at == pictures.begin()) return std::nullopt;
+        --at;
+        auto previous = resolve(scope, at->first);
+        if (!previous || previous->type != 5 || !previous->currentFrameIsFrame0
+                || previous->id != current->id) return std::nullopt;
+        return at->first;
+    }
+    // Retain all independent usages at the retirement boundary. Pictures not
+    // output still take part in temporal phase and pair identity.
     void retireThrough(Scope scope, int64_t poc) {
         auto found = mScopes.find(scope);
         if (found == mScopes.end() || !found->second.count(poc)) return;
-        auto value = resolve(scope, poc);
+        auto values = resolveAll(scope, poc);
         auto &pictures = found->second;
         pictures.erase(pictures.begin(), pictures.lower_bound(poc));
-        pictures[poc] = value;
+        pictures[poc] = std::move(values);
         for (auto it = mScopes.begin(); it != mScopes.end();) {
             if (it->first.first < scope.first) it = mScopes.erase(it);
             else ++it;
@@ -100,7 +133,7 @@ public:
     void reset() { mScopes.clear(); }
 
 private:
-    std::map<Scope, std::map<int64_t, std::optional<FramePacking>>> mScopes;
+    std::map<Scope, std::map<int64_t, std::vector<FramePacking>>> mScopes;
 };
 
 }  // namespace stereo
