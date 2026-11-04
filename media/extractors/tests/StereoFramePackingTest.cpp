@@ -312,6 +312,20 @@ TEST(StereoFramePackingHistoryTest, TemporalPairIdentifiesSkippedConstituent) {
     a.currentFrameIsFrame0=0;history.remember({2,0},0,a);
     EXPECT_FALSE(history.pairStartPoc({2,0},0));
 }
+TEST(StereoFramePackingHistoryTest, TemporalPairUsesViewpointAndPicturesNotUsageId) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 5, 1, 7, false, 1, true), false, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 5, 1, 9), false, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 2, b);
+    ASSERT_TRUE(history.pairStartPoc({1, 0}, 2));
+    EXPECT_EQ(0, *history.pairStartPoc({1, 0}, 2));
+    EXPECT_EQ(9u, history.resolve({1, 0}, 2)->id);
+    b.packing.order = RIGHT_FIRST;
+    history.remember({1, 0}, 2, b);
+    EXPECT_FALSE(history.pairStartPoc({1, 0}, 2));
+}
 TEST(StereoSegmentedRectTest, EveryAssignedInterpretationAndPersistence) {
     for (uint32_t order=0; order<3; ++order) for (uint32_t persistent=0; persistent<2; ++persistent) {
         uint8_t byte=(order<<5)|(persistent<<4)|8;
