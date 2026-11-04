@@ -46,6 +46,7 @@
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/ByteUtils.h>
 #include <media/stagefright/foundation/ColorUtils.h>
+#include <media/stagefright/foundation/StereoLayout.h>
 #include <media/stagefright/foundation/avc_utils.h>
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/foundation/OpusHeader.h>
@@ -2622,6 +2623,41 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                                    MEDIA_MIMETYPE_VIDEO_DOLBY_VISION);
 
             *offset += chunk_size;
+            break;
+        }
+
+        case FOURCC("st3d"):
+        {
+            *offset += chunk_size;
+            // Spherical Video V2: a single version-0 FullBox in a VisualSampleEntry.
+            if (mLastTrack == nullptr || mPath.size() != 8
+                    || mPath[5] != FOURCC("stsd")) {
+                return OK;
+            }
+            uint8_t data[5];
+            if (chunk_data_size != sizeof(data)) {
+                return ERROR_MALFORMED;
+            }
+            if (mDataSource->readAt(data_offset, data, sizeof(data)) != sizeof(data)) {
+                return ERROR_IO;
+            }
+            if (mLastTrack->hasSt3d) {
+                return ERROR_MALFORMED;
+            }
+            mLastTrack->hasSt3d = true;
+            if (U32_AT(data) != 0) {
+                ALOGW("Unrecognized st3d version/flags; stereo-layout absent");
+                break;
+            }
+            AMediaFormat_setInt32(mLastTrack->meta, "stereo-st3d-mode", data[4]);
+            stereo::Packing packing;
+            if (stereo::fromSt3d(data[4], &packing)) {
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-layout", packing.layout);
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-view-order", packing.order);
+                AMediaFormat_setString(mLastTrack->meta, "stereo-metadata-source", "st3d");
+            } else {
+                ALOGW("Unrecognized st3d stereo_mode %u; stereo-layout absent", data[4]);
+            }
             break;
         }
 

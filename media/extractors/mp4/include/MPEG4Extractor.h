@@ -82,6 +82,7 @@ private:
         sp<SampleTable> sampleTable;
         bool includes_expensive_metadata;
         bool skipTrack;
+        bool hasSt3d = false;
         bool elst_needs_processing;
         /* signed int, ISO Spec allows media_time = -1 for other use cases.
          * but we don't support empty edits for now.

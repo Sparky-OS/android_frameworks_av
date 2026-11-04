@@ -122,3 +122,24 @@ cc_test_host {
     cflags: ["-Wall", "-Werror"],
     compile_multilib: "first",
 }
+
+cc_test_host {
+    name: "Mp4StereoMetadataTest",
+    srcs: ["Mp4StereoMetadataTest.cpp"],
+    static_libs: [
+        "libmp4extractor",
+        "libmediandk_format",
+        "libmedia_ndkformatpriv",
+        "libstagefright_foundation",
+        "libstagefright_foundation_colorutils_ndk",
+        "libstagefright_metadatautils",
+        "libstagefright_esds",
+        "libstagefright_id3",
+        "libutils",
+        "libcutils",
+        "liblog",
+        "libz",
+    ],
+    cflags: ["-Wall", "-Werror"],
+    compile_multilib: "first",
+}

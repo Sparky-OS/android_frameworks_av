@@ -90,6 +90,22 @@ inline bool fromMatroska(uint64_t value, Packing *packing) {
     return true;
 }
 
+// Google Spherical Video V2, Stereoscopic 3D Video Box.
+inline bool fromSt3d(uint8_t value, Packing *packing) {
+    static constexpr Packing kModes[] = {
+        {MONO, UNSPECIFIED},
+        {TOP_BOTTOM, LEFT_FIRST},
+        {SIDE_BY_SIDE, LEFT_FIRST},
+        {CUSTOM, UNSPECIFIED},
+        {SIDE_BY_SIDE, RIGHT_FIRST},
+    };
+    if (value >= sizeof(kModes) / sizeof(kModes[0])) {
+        return false;
+    }
+    *packing = kModes[value];
+    return true;
+}
+
 }  // namespace stereo
 }  // namespace android
 
