@@ -2062,6 +2062,8 @@ bool CCodecBufferChannel::handleWork(
                 pictureFormat->removeEntryByName("stereo-upsampled-aspect-ratio");
                 pictureFormat->removeEntryByName("stereo-sequence");
                 pictureFormat->removeEntryByName("stereo-picture-poc");
+                pictureFormat->removeEntryByName("stereo-pair-valid");
+                pictureFormat->removeEntryByName("stereo-pair-poc");
                 pictureFormat->removeEntryByName("stereo-metadata-source");
                 if (stereoInfo->layout >= 0) {
                     pictureFormat->setInt32("stereo-layout", stereoInfo->layout);
@@ -2085,6 +2087,8 @@ bool CCodecBufferChannel::handleWork(
                     pictureFormat->setInt32("stereo-upsampled-aspect-ratio", stereoInfo->upsampledAspectRatio);
                     pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
                     pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
+                    pictureFormat->setInt32("stereo-pair-valid", stereoInfo->pairValid);
+                    pictureFormat->setInt32("stereo-pair-poc", stereoInfo->pairPoc);
                     pictureFormat->setString("stereo-metadata-source", stereoInfo->codec == 2 ? "hevc-sei" : "avc-sei");
                 }
             }

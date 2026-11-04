@@ -719,6 +719,10 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     const auto &picture = output.s_stereo_output;
     if (!picture.u4_picture_valid) return;
     auto resolved = mStereoHistory.resolve({picture.u4_sequence, 0}, picture.i4_poc);
+    auto pair = mStereoHistory.pairStartPoc({picture.u4_sequence, 0}, picture.i4_poc);
+    if (mStereoHistory.resolveAll({picture.u4_sequence, 0}, picture.i4_poc).size() > 1) {
+        ALOGW("Stereo source has multiple arrangement usages; scalar layout requires selection");
+    }
     mStereoHistory.retireThrough({picture.u4_sequence, 0}, picture.i4_poc);
     if (!resolved) return;
     const auto &value = *resolved;
@@ -744,6 +748,8 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     mStereoOutput.upsampledAspectRatio = value.upsampledAspectRatio;
     mStereoOutput.sequence = picture.u4_sequence;
     mStereoOutput.poc = picture.i4_poc;
+    mStereoOutput.pairValid = pair.has_value();
+    mStereoOutput.pairPoc = pair.value_or(0);
 }
 
 void C2SoftHevcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work) {
