@@ -133,6 +133,9 @@ status_t MediaTrackCUnwrapper::read(MediaBufferBase **buffer, const ReadOptions 
         if (format->mFormat->findInt64("target-time", &val64)) {
             meta.setInt64(kKeyTargetTime, val64);
         }
+        if (format->mFormat->findInt64("stereo-block-id", &val64)) {
+            meta.setInt64(kKeyStereoBlockId, val64);
+        }
         if (format->mFormat->findInt64("sample-file-offset", &val64)) {
             meta.setInt64(kKeySampleFileOffset, val64);
         }
@@ -142,6 +145,18 @@ status_t MediaTrackCUnwrapper::read(MediaBufferBase **buffer, const ReadOptions 
             meta.setInt64(kKeyLastSampleIndexInChunk, val64);
         }
         int32_t val32;
+        if (format->mFormat->findInt32("stereo-layout", &val32)) {
+            meta.setInt32(kKeyStereoLayout, val32);
+        }
+        if (format->mFormat->findInt32("stereo-view-order", &val32)) {
+            meta.setInt32(kKeyStereoViewOrder, val32);
+        }
+        if (format->mFormat->findInt32("stereo-lace-index", &val32)) {
+            meta.setInt32(kKeyStereoLaceIndex, val32);
+        }
+        if (format->mFormat->findInt32("stereo-lace-count", &val32)) {
+            meta.setInt32(kKeyStereoLaceCount, val32);
+        }
         if (format->mFormat->findInt32("is-sync-frame", &val32)) {
             meta.setInt32(kKeyIsSyncFrame, val32);
         }
