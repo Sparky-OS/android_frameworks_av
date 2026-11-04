@@ -227,19 +227,74 @@ TEST(StereoFramePackingHistoryTest, TemporalPhaseCountsSkippedPicturesAndScopes)
     history.reset();
     EXPECT_FALSE(history.resolve({1, 0}, 4));
 }
-TEST(StereoFramePackingHistoryTest, DifferentUsageDoesNotCancelPersistentId) {
+TEST(StereoFramePackingHistoryTest, LaterUsageWinsInOutputOrderAndCancellationEndsIt) {
+    for (bool hevc : {false, true}) {
+        FramePackingHistory history;
+        FramePacking a, b, cancel;
+        ASSERT_EQ(ParseResult::VALID, parse(payload(hevc, 3, 1, 7), hevc, &a));
+        ASSERT_EQ(ParseResult::VALID, parse(payload(hevc, 4, 2, 9), hevc, &b));
+        ASSERT_EQ(ParseResult::VALID, parse(payload(hevc, 0, 0, 27, true), hevc, &cancel));
+        history.remember({1, 0}, 0, a);
+        history.remember({1, 0}, 6, b); // Decoded before the intervening pictures.
+        history.remember({1, 0}, 2, std::nullopt);
+        history.remember({1, 0}, 4, std::nullopt);
+        history.remember({1, 0}, 8, cancel); // Skipped, but ends the arrangement.
+        history.remember({1, 0}, 10, std::nullopt);
+        ASSERT_TRUE(history.resolve({1, 0}, 4));
+        EXPECT_EQ(7u, history.resolve({1, 0}, 4)->id);
+        ASSERT_TRUE(history.resolve({1, 0}, 6));
+        EXPECT_EQ(9u, history.resolve({1, 0}, 6)->id);
+        EXPECT_EQ(TOP_BOTTOM, history.resolve({1, 0}, 6)->packing.layout);
+        EXPECT_EQ(RIGHT_FIRST, history.resolve({1, 0}, 6)->packing.order);
+        EXPECT_FALSE(history.resolve({1, 0}, 10));
+    }
+}
+TEST(StereoFramePackingHistoryTest, NonPersistentDifferentUsageDoesNotReviveOldUsage) {
     FramePackingHistory history;
     FramePacking a, b;
-    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3), true, &a));
-    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 2, false, 0), true, &b));
-    history.remember({1,0}, 0, a);
-    history.remember({1,0}, 1, b);
-    history.remember({1,0}, 2, std::nullopt);
-    EXPECT_EQ(2u, history.resolveAll({1,0},1).size());
-    EXPECT_FALSE(history.resolve({1,0},1));
-    history.retireThrough({1,0},1);
-    ASSERT_TRUE(history.resolve({1,0},2));
-    EXPECT_EQ(SIDE_BY_SIDE,history.resolve({1,0},2)->packing.layout);
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3, 1, 7), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 9, false, 0), true, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 2, b);
+    history.remember({1, 0}, 4, std::nullopt);
+    ASSERT_TRUE(history.resolve({1, 0}, 2));
+    EXPECT_EQ(9u, history.resolve({1, 0}, 2)->id);
+    history.retireThrough({1, 0}, 2);
+    EXPECT_FALSE(history.resolve({1, 0}, 4));
+}
+TEST(StereoFramePackingHistoryTest, LastApplicableMessageOnOnePictureWins) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3, 2, 7), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 9), true, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 0, b);
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 0, std::nullopt); // Ignored/reserved messages are not events.
+    ASSERT_TRUE(history.resolve({1, 0}, 0));
+    EXPECT_EQ(SIDE_BY_SIDE, history.resolve({1, 0}, 0)->packing.layout);
+    EXPECT_EQ(RIGHT_FIRST, history.resolve({1, 0}, 0)->packing.order);
+}
+TEST(StereoFramePackingHistoryTest, TwoLayersKeepOneArrangementEach) {
+    FramePackingHistory history;
+    FramePacking a, b, cancel;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3, 1, 7), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 2, 9), true, &b));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 0, 0, 27, true), true, &cancel));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 1}, 0, b);
+    ASSERT_TRUE(history.resolve({1, 0}, 0));
+    ASSERT_TRUE(history.resolve({1, 1}, 0));
+    EXPECT_EQ(SIDE_BY_SIDE, history.resolve({1, 0}, 0)->packing.layout);
+    EXPECT_EQ(TOP_BOTTOM, history.resolve({1, 1}, 0)->packing.layout);
+    history.remember({1, 0}, 2, b);
+    history.remember({1, 1}, 2, std::nullopt);
+    history.retireThrough({1, 0}, 2);
+    history.remember({1, 0}, 4, cancel);
+    history.remember({1, 1}, 4, std::nullopt);
+    EXPECT_FALSE(history.resolve({1, 0}, 4));
+    ASSERT_TRUE(history.resolve({1, 1}, 4));
+    EXPECT_EQ(9u, history.resolve({1, 1}, 4)->id);
 }
 TEST(StereoFramePackingHistoryTest, TemporalPairIdentifiesSkippedConstituent) {
     FramePackingHistory history;
