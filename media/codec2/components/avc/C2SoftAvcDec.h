@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_AVC_DEC_H_
 
 #include <sys/time.h>
+#include <media/stagefright/foundation/StereoFramePacking.h>
 #include <inttypes.h>
 
 #include <media/stagefright/foundation/ColorUtils.h>
@@ -112,6 +113,9 @@ public:
             const std::shared_ptr<C2BlockPool> &pool) override;
 
 private:
+    void updateStereo(const ih264d_video_decode_op_t &output);
+    stereo::FramePackingHistory mStereoHistory;
+    C2StereoSourceStruct mStereoOutput;
     status_t createDecoder();
     status_t setNumCores();
     status_t setParams(size_t stride, IVD_VIDEO_DECODE_MODE_T dec_mode);

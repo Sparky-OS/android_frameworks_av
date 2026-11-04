@@ -197,6 +197,7 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexPictureQuantization,
     kParamIndexHdrDynamicMetadata,
     kParamIndexHdrFormat,
+    kParamIndexStereoSource,
 
     /* ------------------------------------ video components ------------------------------------ */
 
@@ -1577,6 +1578,56 @@ constexpr char C2_PARAMKEY_VUI_COLOR_ASPECTS[] = "coded.vui.color";
 typedef C2StreamParam<C2Tuning, C2ColorAspectsStruct, kParamIndexDefaultColorAspects>
         C2StreamColorAspectsTuning;
 constexpr char C2_PARAMKEY_DEFAULT_COLOR_ASPECTS[] = "default.color";
+
+/** Picture-scoped source arrangement; layout -1 explicitly clears the decoder contribution.
+ * Draft platform parameter, independent of display output modes. */
+struct C2StereoSourceStruct {
+    int32_t layout = -1;
+    uint32_t order = 0;
+    uint32_t id = 0;
+    uint32_t arrangementType = 0;
+    uint32_t interpretation = 0;
+    uint32_t quincunx = 0;
+    uint32_t spatialFlipping = 0;
+    uint32_t frame0Flipped = 0;
+    uint32_t fieldViews = 0;
+    uint32_t currentFrameIsFrame0 = 0;
+    uint32_t frame0SelfContained = 0;
+    uint32_t frame1SelfContained = 0;
+    uint32_t grid0X = 0;
+    uint32_t grid0Y = 0;
+    uint32_t grid1X = 0;
+    uint32_t grid1Y = 0;
+    uint32_t repetitionPeriod = 0;
+    uint32_t persistence = 0;
+    uint32_t upsampledAspectRatio = 0;
+    uint32_t sequence = 0;
+    int32_t poc = 0;
+    DEFINE_AND_DESCRIBE_BASE_C2STRUCT(StereoSource)
+    C2FIELD(layout, "layout")
+    C2FIELD(order, "view-order")
+    C2FIELD(id, "arrangement-id")
+    C2FIELD(arrangementType, "arrangement-type")
+    C2FIELD(interpretation, "content-interpretation")
+    C2FIELD(quincunx, "quincunx")
+    C2FIELD(spatialFlipping, "spatial-flipping")
+    C2FIELD(frame0Flipped, "frame0-flipped")
+    C2FIELD(fieldViews, "field-views")
+    C2FIELD(currentFrameIsFrame0, "current-frame-is-frame0")
+    C2FIELD(frame0SelfContained, "frame0-self-contained")
+    C2FIELD(frame1SelfContained, "frame1-self-contained")
+    C2FIELD(grid0X, "frame0-grid-x")
+    C2FIELD(grid0Y, "frame0-grid-y")
+    C2FIELD(grid1X, "frame1-grid-x")
+    C2FIELD(grid1Y, "frame1-grid-y")
+    C2FIELD(repetitionPeriod, "repetition-period")
+    C2FIELD(persistence, "persistence")
+    C2FIELD(upsampledAspectRatio, "upsampled-aspect-ratio")
+    C2FIELD(sequence, "sequence")
+    C2FIELD(poc, "picture-poc")
+};
+typedef C2StreamParam<C2Info, C2StereoSourceStruct, kParamIndexStereoSource>
+        C2StreamStereoSourceInfo;
 
 /**
  * HDR Static Metadata Info.

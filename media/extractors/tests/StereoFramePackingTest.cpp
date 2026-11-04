@@ -156,6 +156,77 @@ TEST(StereoFramePackingTest, GolombOverflowIsMalformed) {
     FramePacking f;
     EXPECT_EQ(ParseResult::MALFORMED, parse(zeros, false, &f));
 }
+TEST(StereoFramePackingHistoryTest, DecodeOrderDoesNotChangeEarlierOutput) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 3), false, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 4), false, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 6, b);
+    history.remember({1, 0}, 2, std::nullopt);
+    history.remember({1, 0}, 4, std::nullopt);
+    ASSERT_TRUE(history.resolve({1, 0}, 2));
+    EXPECT_EQ(SIDE_BY_SIDE, history.resolve({1, 0}, 2)->packing.layout);
+    EXPECT_EQ(SIDE_BY_SIDE, history.resolve({1, 0}, 4)->packing.layout);
+    EXPECT_EQ(TOP_BOTTOM, history.resolve({1, 0}, 6)->packing.layout);
+}
+TEST(StereoFramePackingHistoryTest, SkippedCancellationAndDifferentIdReplace) {
+    FramePackingHistory history;
+    FramePacking a, cancel;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 3), false, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 0, 0, 9, true), false, &cancel));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 4, std::nullopt);
+    history.remember({1, 0}, 2, cancel); // Skipped: never resolved for display.
+    EXPECT_FALSE(history.resolve({1, 0}, 4));
+    EXPECT_TRUE(history.resolve({1, 0}, 0));
+}
+TEST(StereoFramePackingHistoryTest, NonPersistentDoesNotReviveOlderArrangement) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3), true, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 4, 1, 2, false, 0), true, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 1, b);
+    history.remember({1, 0}, 2, std::nullopt);
+    EXPECT_EQ(TOP_BOTTOM, history.resolve({1, 0}, 1)->packing.layout);
+    EXPECT_FALSE(history.resolve({1, 0}, 2));
+}
+TEST(StereoFramePackingHistoryTest, NonOutputHistoryIsNotCappedAt64) {
+    FramePackingHistory history;
+    FramePacking a;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(true, 3), true, &a));
+    history.remember({1, 0}, 0, a);
+    for (int poc = 100; poc >= 1; --poc) history.remember({1, 0}, poc, std::nullopt);
+    ASSERT_TRUE(history.resolve({1, 0}, 17));
+    EXPECT_EQ(SIDE_BY_SIDE, history.resolve({1, 0}, 17)->packing.layout);
+}
+TEST(StereoFramePackingHistoryTest, RetirementPreservesPhaseAndFutureChanges) {
+    FramePackingHistory history;
+    FramePacking a, b;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 5, 1, 0, false, 1, true), false, &a));
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 4), false, &b));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 2, std::nullopt);
+    history.remember({1, 0}, 4, std::nullopt);
+    history.remember({1, 0}, 6, b);
+    history.retireThrough({1, 0}, 2);
+    EXPECT_EQ(1u, history.resolve({1, 0}, 4)->currentFrameIsFrame0);
+    EXPECT_EQ(TOP_BOTTOM, history.resolve({1, 0}, 6)->packing.layout);
+}
+TEST(StereoFramePackingHistoryTest, TemporalPhaseCountsSkippedPicturesAndScopes) {
+    FramePackingHistory history;
+    FramePacking a;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 5, 1, 0, false, 1, true), false, &a));
+    history.remember({1, 0}, 0, a);
+    history.remember({1, 0}, 4, std::nullopt);
+    history.remember({1, 0}, 2, std::nullopt); // Skipped, still the other constituent.
+    EXPECT_EQ(1u, history.resolve({1, 0}, 4)->currentFrameIsFrame0);
+    EXPECT_FALSE(history.resolve({2, 0}, 4));
+    EXPECT_FALSE(history.resolve({1, 1}, 4));
+    history.reset();
+    EXPECT_FALSE(history.resolve({1, 0}, 4));
+}
 }  // namespace
 }  // namespace stereo
 }  // namespace android

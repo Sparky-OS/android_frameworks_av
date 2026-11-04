@@ -2034,12 +2034,67 @@ bool CCodecBufferChannel::handleWork(
         if (!output->buffers) {
             return false;
         }
+        sp<AMessage> pictureFormat = outputFormat;
+        auto stereoInfo = buffer ? std::static_pointer_cast<const C2StreamStereoSourceInfo::output>(
+                buffer->getInfo(C2StreamStereoSourceInfo::output::PARAM_TYPE)) : nullptr;
+        if (stereoInfo) {
+            sp<AMessage> base = outputFormat ? outputFormat : output->buffers->dupFormat();
+            if (base && (stereoInfo->layout >= 0 || base->contains("stereo-layout"))) {
+                pictureFormat = base->dup();
+                pictureFormat->removeEntryByName("stereo-layout");
+                pictureFormat->removeEntryByName("stereo-view-order");
+                pictureFormat->removeEntryByName("stereo-arrangement-id");
+                pictureFormat->removeEntryByName("stereo-arrangement-type");
+                pictureFormat->removeEntryByName("stereo-content-interpretation");
+                pictureFormat->removeEntryByName("stereo-quincunx");
+                pictureFormat->removeEntryByName("stereo-spatial-flipping");
+                pictureFormat->removeEntryByName("stereo-frame0-flipped");
+                pictureFormat->removeEntryByName("stereo-field-views");
+                pictureFormat->removeEntryByName("stereo-current-frame-is-frame0");
+                pictureFormat->removeEntryByName("stereo-frame0-self-contained");
+                pictureFormat->removeEntryByName("stereo-frame1-self-contained");
+                pictureFormat->removeEntryByName("stereo-frame0-grid-x");
+                pictureFormat->removeEntryByName("stereo-frame0-grid-y");
+                pictureFormat->removeEntryByName("stereo-frame1-grid-x");
+                pictureFormat->removeEntryByName("stereo-frame1-grid-y");
+                pictureFormat->removeEntryByName("stereo-repetition-period");
+                pictureFormat->removeEntryByName("stereo-persistence");
+                pictureFormat->removeEntryByName("stereo-upsampled-aspect-ratio");
+                pictureFormat->removeEntryByName("stereo-sequence");
+                pictureFormat->removeEntryByName("stereo-picture-poc");
+                pictureFormat->removeEntryByName("stereo-metadata-source");
+                if (stereoInfo->layout >= 0) {
+                    pictureFormat->setInt32("stereo-layout", stereoInfo->layout);
+                    pictureFormat->setInt32("stereo-view-order", stereoInfo->order);
+                    pictureFormat->setInt32("stereo-arrangement-id", stereoInfo->id);
+                    pictureFormat->setInt32("stereo-arrangement-type", stereoInfo->arrangementType);
+                    pictureFormat->setInt32("stereo-content-interpretation", stereoInfo->interpretation);
+                    pictureFormat->setInt32("stereo-quincunx", stereoInfo->quincunx);
+                    pictureFormat->setInt32("stereo-spatial-flipping", stereoInfo->spatialFlipping);
+                    pictureFormat->setInt32("stereo-frame0-flipped", stereoInfo->frame0Flipped);
+                    pictureFormat->setInt32("stereo-field-views", stereoInfo->fieldViews);
+                    pictureFormat->setInt32("stereo-current-frame-is-frame0", stereoInfo->currentFrameIsFrame0);
+                    pictureFormat->setInt32("stereo-frame0-self-contained", stereoInfo->frame0SelfContained);
+                    pictureFormat->setInt32("stereo-frame1-self-contained", stereoInfo->frame1SelfContained);
+                    pictureFormat->setInt32("stereo-frame0-grid-x", stereoInfo->grid0X);
+                    pictureFormat->setInt32("stereo-frame0-grid-y", stereoInfo->grid0Y);
+                    pictureFormat->setInt32("stereo-frame1-grid-x", stereoInfo->grid1X);
+                    pictureFormat->setInt32("stereo-frame1-grid-y", stereoInfo->grid1Y);
+                    pictureFormat->setInt32("stereo-repetition-period", stereoInfo->repetitionPeriod);
+                    pictureFormat->setInt32("stereo-persistence", stereoInfo->persistence);
+                    pictureFormat->setInt32("stereo-upsampled-aspect-ratio", stereoInfo->upsampledAspectRatio);
+                    pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
+                    pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
+                    pictureFormat->setString("stereo-metadata-source", "avc-sei");
+                }
+            }
+        }
         output->buffers->pushToStash(
                 buffer,
                 notifyClient,
                 timestamp.peek(),
                 flags,
-                outputFormat,
+                pictureFormat,
                 worklet->output.ordinal);
     }
     sendOutputBuffers();

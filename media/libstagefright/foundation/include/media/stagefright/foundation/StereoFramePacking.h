@@ -19,6 +19,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <map>
+#include <optional>
+#include <tuple>
 #include <media/stagefright/foundation/StereoLayout.h>
 
 namespace android {
@@ -51,6 +54,54 @@ struct FramePacking {
 // A failed/ignored parse leaves *result unchanged.
 ParseResult parseFramePacking(const uint8_t *data, size_t size, bool hevc,
                               FramePacking *result);
+
+// The decoder supplies every picture, including skipped/non-output pictures.
+// A scope is an explicit sequence and layer/view identity, never a timestamp.
+class FramePackingHistory {
+public:
+    using Scope = std::pair<uint64_t, uint32_t>;
+    void remember(Scope scope, int64_t poc, const std::optional<FramePacking> &message) {
+        auto &pictures = mScopes[scope];
+        auto inserted = pictures.emplace(poc, message);
+        if (!inserted.second && message) inserted.first->second = message;
+    }
+    std::optional<FramePacking> resolve(Scope scope, int64_t poc) const {
+        auto found = mScopes.find(scope);
+        if (found == mScopes.end()) return std::nullopt;
+        const auto &pictures = found->second;
+        auto current = pictures.find(poc);
+        if (current == pictures.end()) return std::nullopt;
+        uint64_t following = 0;
+        for (auto at = std::make_reverse_iterator(std::next(current));
+             at != pictures.rend(); ++at, ++following) {
+            if (!at->second) continue;
+            FramePacking result = *at->second;
+            if (result.cancel || (following && !result.persistence)) return std::nullopt;
+            if (result.type == 5) result.currentFrameIsFrame0 ^= following & 1;
+            return result;
+        }
+        return std::nullopt;
+    }
+    // Call only after a picture leaves the decoder in output order. Earlier
+    // pictures can no longer be emitted, so preserve just their resolved state.
+    // No fixed bound on HEVC non-output history is assumed.
+    void retireThrough(Scope scope, int64_t poc) {
+        auto found = mScopes.find(scope);
+        if (found == mScopes.end() || !found->second.count(poc)) return;
+        auto value = resolve(scope, poc);
+        auto &pictures = found->second;
+        pictures.erase(pictures.begin(), pictures.lower_bound(poc));
+        pictures[poc] = value;
+        for (auto it = mScopes.begin(); it != mScopes.end();) {
+            if (it->first.first < scope.first) it = mScopes.erase(it);
+            else ++it;
+        }
+    }
+    void reset() { mScopes.clear(); }
+
+private:
+    std::map<Scope, std::map<int64_t, std::optional<FramePacking>>> mScopes;
+};
 
 }  // namespace stereo
 }  // namespace android

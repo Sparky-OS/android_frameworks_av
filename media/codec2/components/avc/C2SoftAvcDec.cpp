@@ -397,6 +397,7 @@ c2_status_t C2SoftAvcDec::onFlush_sm() {
 
         setDecodeArgs(ps_decode_ip, ps_decode_op, nullptr, nullptr, 0, 0, 0);
         (void) ivdec_api_function(mDecHandle, &s_h264d_decode_ip, &s_h264d_decode_op);
+        updateStereo(s_h264d_decode_op);
         if (0 == ps_decode_op->u4_output_present) {
             resetPlugin();
             break;
@@ -669,6 +670,8 @@ status_t C2SoftAvcDec::resetDecoder() {
 }
 
 void C2SoftAvcDec::resetPlugin() {
+    mStereoHistory.reset();
+    mStereoOutput = {};
     mSignalledOutputEos = false;
     mTimeStart = mTimeEnd = systemTime();
 }
@@ -707,10 +710,55 @@ static void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
     work->workletsProcessed = 1u;
 }
 
+void C2SoftAvcDec::updateStereo(const ih264d_video_decode_op_t &output) {
+    const auto &input = output.s_stereo_input;
+    if (input.u4_picture_valid) {
+        std::optional<stereo::FramePacking> event;
+        stereo::FramePacking parsed;
+        if (input.u4_payload_size && stereo::parseFramePacking(input.au1_payload,
+                input.u4_payload_size, false, &parsed) == stereo::ParseResult::VALID) {
+            event = parsed;
+        }
+        mStereoHistory.remember({input.u4_sequence, 0}, input.i4_poc, event);
+    }
+    if (!output.s_ivd_video_decode_op_t.u4_output_present) return;
+    mStereoOutput = {};
+    const auto &picture = output.s_stereo_output;
+    if (!picture.u4_picture_valid) return;
+    auto resolved = mStereoHistory.resolve({picture.u4_sequence, 0}, picture.i4_poc);
+    mStereoHistory.retireThrough({picture.u4_sequence, 0}, picture.i4_poc);
+    if (!resolved) return;
+    const auto &value = *resolved;
+    mStereoOutput.layout = value.packing.layout;
+    mStereoOutput.order = value.packing.order;
+    mStereoOutput.id = value.id;
+    mStereoOutput.arrangementType = value.type;
+    mStereoOutput.interpretation = value.interpretation;
+    mStereoOutput.quincunx = value.quincunx;
+    mStereoOutput.spatialFlipping = value.spatialFlipping;
+    mStereoOutput.frame0Flipped = value.frame0Flipped;
+    mStereoOutput.fieldViews = value.fieldViews;
+    mStereoOutput.currentFrameIsFrame0 = value.currentFrameIsFrame0;
+    mStereoOutput.frame0SelfContained = value.frame0SelfContained;
+    mStereoOutput.frame1SelfContained = value.frame1SelfContained;
+    mStereoOutput.grid0X = value.grid[0];
+    mStereoOutput.grid0Y = value.grid[1];
+    mStereoOutput.grid1X = value.grid[2];
+    mStereoOutput.grid1Y = value.grid[3];
+    mStereoOutput.repetitionPeriod = value.repetitionPeriod;
+    mStereoOutput.persistence = value.persistence;
+    mStereoOutput.upsampledAspectRatio = value.upsampledAspectRatio;
+    mStereoOutput.sequence = picture.u4_sequence;
+    mStereoOutput.poc = picture.i4_poc;
+}
+
 void C2SoftAvcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work) {
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(std::move(mOutBlock),
                                                            C2Rect(mWidth, mHeight));
     mOutBlock = nullptr;
+    auto stereoInfo = std::make_shared<C2StreamStereoSourceInfo::output>(0u);
+    static_cast<C2StereoSourceStruct &>(*stereoInfo) = mStereoOutput;
+    buffer->setInfo(stereoInfo);
     {
         IntfImpl::Lock lock = mIntf->lock();
         buffer->setInfo(mIntf->getColorAspects_l());
@@ -868,6 +916,7 @@ void C2SoftAvcDec::process(
             mTimeStart = systemTime();
             nsecs_t delay = mTimeStart - mTimeEnd;
             (void) ivdec_api_function(mDecHandle, &s_h264d_decode_ip, &s_h264d_decode_op);
+        updateStereo(s_h264d_decode_op);
 
             mTimeEnd = systemTime();
             nsecs_t decodeTime = mTimeEnd - mTimeStart;
@@ -1003,6 +1052,7 @@ c2_status_t C2SoftAvcDec::drainInternal(
             return C2_CORRUPTED;
         }
         (void) ivdec_api_function(mDecHandle, &s_h264d_decode_ip, &s_h264d_decode_op);
+        updateStereo(s_h264d_decode_op);
         if (ps_decode_op->u4_output_present) {
             finishWork(ps_decode_op->u4_ts, work);
         } else {
