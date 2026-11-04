@@ -41,6 +41,7 @@
 #include <media/AudioSystem.h>
 #include <media/MediaPlayerInterface.h>
 #include <media/stagefright/Utils.h>
+#include <media/stagefright/SampleMetadata.h>
 #include <media/AudioParameter.h>
 #include <system/audio.h>
 
@@ -764,6 +765,7 @@ static std::vector<std::pair<const char *, uint32_t>> floatMappings {
 
 static std::vector<std::pair<const char*, uint32_t>> int64Mappings {
     {
+        { "stereo-block-id", kKeyStereoBlockId },
         { "stereo-matroska-mode", kKeyStereoMatroskaMode },
         { "stereo-stvi-scheme", kKeyStereoStviScheme },
         { "stereo-vexu-packing", kKeyStereoVexuPacking },
@@ -783,6 +785,8 @@ static std::vector<std::pair<const char*, uint32_t>> int64Mappings {
 
 static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
     {
+        { "stereo-lace-index", kKeyStereoLaceIndex },
+        { "stereo-lace-count", kKeyStereoLaceCount },
         { "stereo-layout", kKeyStereoLayout },
         { "stereo-view-order", kKeyStereoViewOrder },
         { "stereo-st3d-mode", kKeyStereoSt3dMode },
@@ -938,6 +942,19 @@ void convertMetaDataToMessageFromMappings(const MetaDataBase *meta, sp<AMessage>
             buf->meta()->setInt64("timeUs", 0);
             format->setBuffer(elem.first, buf);
         }
+    }
+}
+
+void convertSampleMetaDataToMessage(const MetaDataBase *meta, sp<AMessage> format) {
+    // Sample metadata has no MIME requirement, unlike a track format.
+    convertMetaDataToMessageFromMappings(meta, format);
+    int32_t sync;
+    if (meta->findInt32(kKeyIsSyncFrame, &sync)) format->setInt32("is-sync-frame", sync);
+    uint32_t type;
+    const void *data;
+    size_t size;
+    if (meta->findData(kKeyMpegUserData, &type, &data, &size)) {
+        format->setBuffer("mpeg-user-data", ABuffer::CreateAsCopy(data, size));
     }
 }
 

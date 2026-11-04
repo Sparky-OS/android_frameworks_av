@@ -810,6 +810,17 @@ media_status_t MatroskaSource::readBlock() {
         AMediaFormat *meta = mbuf->meta_data();
         AMediaFormat_setInt64(meta, AMEDIAFORMAT_KEY_TIME_US, timeUs);
         AMediaFormat_setInt32(meta, AMEDIAFORMAT_KEY_IS_SYNC_FRAME, block->IsKey());
+        int32_t stereoLayout, stereoOrder;
+        if (AMediaFormat_getInt32(trackInfo->mMeta, "stereo-layout", &stereoLayout)
+                && stereoLayout == stereo::LACED_VIEWS
+                && AMediaFormat_getInt32(trackInfo->mMeta, "stereo-view-order", &stereoOrder)) {
+            // RFC 9559 18.10: association is the Block and lace position, not time.
+            AMediaFormat_setInt32(meta, "stereo-layout", stereoLayout);
+            AMediaFormat_setInt32(meta, "stereo-view-order", stereoOrder);
+            AMediaFormat_setInt64(meta, "stereo-block-id", block->m_start);
+            AMediaFormat_setInt32(meta, "stereo-lace-index", i);
+            AMediaFormat_setInt32(meta, "stereo-lace-count", block->GetFrameCount());
+        }
 
         if (mType == VORBIS) {
             int32_t sampleRate;
@@ -1202,6 +1213,11 @@ media_status_t MatroskaSource::read(
             CHECK(AMediaFormat_getInt32(frameMeta, AMEDIAFORMAT_KEY_IS_SYNC_FRAME, &isSync));
 
             AMediaFormat *bufMeta = buffer->meta_data();
+            if (buffer != frame) {
+                // Preserve source association when converting short NAL length prefixes.
+                AMediaFormat_copy(bufMeta, frameMeta);
+            }
+
             AMediaFormat_setInt64(bufMeta, AMEDIAFORMAT_KEY_TIME_US, timeUs);
             AMediaFormat_setInt32(bufMeta, AMEDIAFORMAT_KEY_IS_SYNC_FRAME, isSync);
 

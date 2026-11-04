@@ -30,6 +30,9 @@ namespace android {
 // The following keys map to int32_t data unless indicated otherwise.
 enum {
     // Source stereo metadata. These keys do not select a display output mode.
+    kKeyStereoBlockId = 'stBi', // int64, source-file Block identity
+    kKeyStereoLaceIndex = 'stLi', // int32
+    kKeyStereoLaceCount = 'stLc', // int32
     kKeyStereoLayout = 'stLy', // int32
     kKeyStereoViewOrder = 'stVo', // int32
     kKeyStereoSt3dMode = 'st3M', // int32

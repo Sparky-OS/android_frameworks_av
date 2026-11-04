@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
+#include <memory>
 
 namespace android {
 namespace {
@@ -54,7 +55,7 @@ Bytes element(uint32_t id, const Bytes &data) {
 }
 
 Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1,
-               bool forceStereoMode = false) {
+               bool forceStereoMode = false, const Bytes &blockPayload = {}) {
     Bytes header;
     for (auto pair : {std::pair<uint32_t, uint64_t>(0x4286, 1), {0x42f7, 1},
                       {0x42f2, 4}, {0x42f3, 8}, {0x4287, 4}, {0x4285, 2}}) {
@@ -78,7 +79,7 @@ Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid =
     append(tracks, extraTracks);
     append(segment, element(0x1654ae6b, tracks));
     Bytes cluster = element(0xe7, number(0));
-    append(cluster, element(0xa3, {0x81, 0, 0, 0x80, 0}));
+    append(cluster, element(0xa3, blockPayload.empty() ? Bytes{0x81, 0, 0, 0x80, 0} : blockPayload));
     append(segment, element(0x1f43b675, cluster));
     append(file, element(0x18538067, segment));
     return file;
@@ -108,6 +109,100 @@ CDataSource makeSource(Bytes &file) {
     source.flags = [](void *) -> uint32_t { return 0; };
     source.getUri = [](void *, char *, size_t) { return false; };
     return source;
+}
+
+// A small C extractor buffer group, so these tests read real demuxed samples.
+class SampleBuffers {
+    struct Buffer {
+        Bytes bytes;
+        size_t offset = 0, length = 0;
+        AMediaFormat *meta = AMediaFormat_new();
+        CMediaBuffer c{};
+        explicit Buffer(size_t size) : bytes(size) {
+            c.handle = this;
+            c.release = [](void *) {};
+            c.data = [](void *h) -> void* { return static_cast<Buffer*>(h)->bytes.data(); };
+            c.size = [](void *h) { return static_cast<Buffer*>(h)->bytes.size(); };
+            c.range_offset = [](void *h) { return static_cast<Buffer*>(h)->offset; };
+            c.range_length = [](void *h) { return static_cast<Buffer*>(h)->length; };
+            c.set_range = [](void *h, size_t o, size_t n) {
+                auto *b = static_cast<Buffer*>(h); b->offset = o; b->length = n;
+            };
+            c.meta_data = [](void *h) { return static_cast<Buffer*>(h)->meta; };
+        }
+        ~Buffer() { AMediaFormat_delete(meta); }
+    };
+    size_t defaultSize = 1024;
+    std::vector<std::unique_ptr<Buffer>> buffers;
+public:
+    CMediaBufferGroup c{};
+    SampleBuffers() {
+        c.handle = this;
+        c.init = [](void *h, size_t, size_t size, size_t) {
+            static_cast<SampleBuffers*>(h)->defaultSize = size; return true;
+        };
+        c.add_buffer = [](void *h, size_t size) { static_cast<SampleBuffers*>(h)->defaultSize = size; };
+        c.has_buffers = [](void *) { return true; };
+        c.acquire_buffer = [](void *h, CMediaBuffer **out, bool, size_t size) -> media_status_t {
+            auto *p = static_cast<SampleBuffers*>(h);
+            p->buffers.push_back(std::make_unique<Buffer>(std::max(size, p->defaultSize)));
+            *out = &p->buffers.back()->c; return AMEDIA_OK;
+        };
+    }
+};
+
+void checkLaceSamples(int64_t mode, int count, bool laced, bool expected) {
+    Bytes payload = {0x81, 0, 0, uint8_t(laced ? 0x84 : 0x80)};
+    if (laced) payload.push_back(count - 1); // fixed-size lacing
+    for (int i = 0; i < count; ++i) payload.push_back(0x20 + i);
+    Bytes file = matroska(mode, {}, 1, false, payload);
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    auto *track = wrap(extractor.getTrack(0));
+    ASSERT_NE(nullptr, track);
+    SampleBuffers buffers;
+    ASSERT_EQ(AMEDIA_OK, track->start(track->data, &buffers.c));
+    int64_t previousBlock = -1;
+    for (int i = 0; i < count; ++i) {
+        CMediaBuffer *buffer = nullptr;
+        ASSERT_EQ(AMEDIA_OK, track->read(track->data, &buffer, 0, 0));
+        ASSERT_NE(nullptr, buffer);
+        AMediaFormat *format = buffer->meta_data(buffer->handle);
+        int64_t block = -1;
+        int32_t index = -1, total = -1, layout = -1, order = -1;
+        EXPECT_EQ(expected, AMediaFormat_getInt64(format, "stereo-block-id", &block));
+        EXPECT_EQ(expected, AMediaFormat_getInt32(format, "stereo-lace-index", &index));
+        EXPECT_EQ(expected, AMediaFormat_getInt32(format, "stereo-lace-count", &total));
+        if (expected) {
+            EXPECT_GE(block, 0);
+            if (i) EXPECT_EQ(previousBlock, block);
+            previousBlock = block;
+            EXPECT_EQ(i, index); EXPECT_EQ(count, total);
+            ASSERT_TRUE(AMediaFormat_getInt32(format, "stereo-layout", &layout));
+            ASSERT_TRUE(AMediaFormat_getInt32(format, "stereo-view-order", &order));
+            EXPECT_EQ(10, layout); EXPECT_EQ(mode == 13 ? 1 : 2, order);
+        }
+        EXPECT_EQ(size_t(1), buffer->range_length(buffer->handle));
+        EXPECT_EQ(0x20 + i, static_cast<uint8_t*>(buffer->data(buffer->handle))[0]);
+        buffer->release(buffer->handle);
+    }
+    EXPECT_EQ(AMEDIA_OK, track->stop(track->data));
+    track->free(track->data); free(track);
+}
+TEST(StereoMetadataTest, LacedViewsRetainBlockAndConstituentIdentity) {
+    checkLaceSamples(13, 2, true, true);
+}
+TEST(StereoMetadataTest, LacedViewsRetainRightFirstOrder) {
+    checkLaceSamples(14, 2, true, true);
+}
+TEST(StereoMetadataTest, IncompleteLacedViewBlockIsNotInventedPair) {
+    checkLaceSamples(13, 1, false, true);
+}
+TEST(StereoMetadataTest, ExtraLacedConstituentCountIsPreserved) {
+    checkLaceSamples(13, 3, true, true);
+}
+TEST(StereoMetadataTest, OrdinaryLacingDoesNotBecomeStereo) {
+    checkLaceSamples(-1, 2, true, false);
 }
 
 void check(int64_t mode, int expectedLayout, int expectedOrder, bool forceStereoMode = false) {

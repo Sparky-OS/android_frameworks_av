@@ -33,6 +33,7 @@
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MetaData.h>
+#include <media/stagefright/SampleMetadata.h>
 #include <media/stagefright/NuMediaExtractor.h>
 #include <media/IMediaHTTPService.h>
 #include <android_util_Binder.h>
@@ -438,6 +439,7 @@ media_status_t AMediaExtractor_getSampleFormat(AMediaExtractor *ex, AMediaFormat
     sp<AMessage> meta;
     AMediaFormat_getFormat(fmt, &meta);
     meta->clear();
+    convertSampleMetaDataToMessage(sampleMeta.get(), meta);
 
     int32_t layerId;
     if (sampleMeta->findInt32(kKeyTemporalLayerId, &layerId)) {
