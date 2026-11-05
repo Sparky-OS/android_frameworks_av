@@ -2046,6 +2046,15 @@ static void setStereoTags(const mkvparser::Tags *tags, const mkvparser::Track *t
                     specific |= target.uid == track->GetUid() && target.uid != 0;
                 } else if (target.uid != 0) otherTarget = true;
             }
+            if (tag->HasUnknownTargets()) {
+                for (int j = 0; j < tag->GetSimpleTagCount(); ++j) {
+                    const char *name = tag->GetSimpleTag(j)->GetTagName();
+                    if (name && (!strcmp(name, "STEREO3D_LAYOUT") || !strcmp(name, "STEREO3D_DEPTH"))) {
+                        complete = false;
+                        ALOGW("Unknown stereo tag target scope; depth convention is unresolved");
+                    }
+                }
+            }
             if (otherTarget || (trackTarget && !wildcard && !specific)) continue;
             for (int j = 0; j < tag->GetSimpleTagCount(); ++j) {
                 const auto *simple = tag->GetSimpleTag(j);

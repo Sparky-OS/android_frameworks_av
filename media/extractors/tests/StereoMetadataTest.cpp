@@ -386,6 +386,21 @@ TEST(StereoMetadataTest, NonDepthHouseVocabularyIsRetained) {
     checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "anaglyphGreenMagenta"), -1, 9, 1);
 }
 
+TEST(StereoMetadataTest, UnknownTagTargetCannotBecomeMissingDepthConvention) {
+    Bytes tags = stereoTag("STEREO3D_DEPTH", "farness", element(0x63C8, number(1)));
+    Bytes file = matroska(15, {}, 1, false, {}, element(0x1254c367, tags));
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    ASSERT_EQ(1u, extractor.countTracks());
+    AMediaFormat *format = AMediaFormat_new();
+    ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, 0, 0));
+    bridgeStereoFormat(format);
+    int32_t complete = -1;
+    ASSERT_TRUE(AMediaFormat_getInt32(format, "stereo-matroska-tags-complete", &complete));
+    EXPECT_EQ(0, complete);
+    AMediaFormat_delete(format);
+}
+
 class MatroskaStereoMetadataTest : public testing::TestWithParam<int> {};
 
 TEST_P(MatroskaStereoMetadataTest, AssignedModeReachesTrackFormat) {
