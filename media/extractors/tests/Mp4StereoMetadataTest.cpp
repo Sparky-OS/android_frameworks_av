@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include "StereoMetadataTestUtils.h"
 #include <media/stagefright/foundation/ABase.h>
+#include <media/stagefright/foundation/ByteUtils.h>
 #include <SampleTable.h>
 #include <MPEG4Extractor.h>
 #include <algorithm>
