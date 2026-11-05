@@ -734,7 +734,7 @@ void C2SoftHevcDec::updateStereo(const ihevcd_cxa_video_decode_op_t &output) {
     auto pair = mStereoHistory.pairStartPoc({picture.u4_sequence, picture.u4_layer_id}, picture.i4_poc);
     mStereoHistory.retireThrough({picture.u4_sequence, picture.u4_layer_id}, picture.i4_poc);
     if (!resolved) return;
-    const auto &value = *resolved;
+    const auto value = resolved->effectiveFlags(true);
     mStereoOutput.codec = 2;
     mStereoOutput.payloadType = value.payloadType;
     mStereoOutput.layout = value.packing.layout;

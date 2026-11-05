@@ -739,7 +739,7 @@ void C2SoftAvcDec::updateStereo(const ih264d_video_decode_op_t &output) {
     auto pair = mStereoHistory.pairStartPoc({picture.u4_sequence, 0}, picture.i4_poc);
     mStereoHistory.retireThrough({picture.u4_sequence, 0}, picture.i4_poc);
     if (!resolved) return;
-    const auto &value = *resolved;
+    const auto value = resolved->effectiveFlags(false);
     mStereoOutput.layout = value.packing.layout;
     mStereoOutput.order = value.packing.order;
     mStereoOutput.id = value.id;
@@ -761,6 +761,10 @@ void C2SoftAvcDec::updateStereo(const ih264d_video_decode_op_t &output) {
     mStereoOutput.upsampledAspectRatio = value.upsampledAspectRatio;
     mStereoOutput.sequence = picture.u4_sequence;
     mStereoOutput.poc = picture.i4_poc;
+    mStereoOutput.fieldPicture = picture.u4_field_picture;
+    mStereoOutput.bottomField = picture.u4_bottom_field;
+    mStereoOutput.fieldPairValid = picture.u4_field_pair_valid;
+    mStereoOutput.fieldPairPoc = picture.i4_field_pair_poc;
     mStereoOutput.pairValid = pair.has_value();
     mStereoOutput.pairPoc = pair.value_or(0);
 }

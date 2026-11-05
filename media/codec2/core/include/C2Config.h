@@ -1604,6 +1604,8 @@ struct C2StereoSourceStruct {
     uint32_t sequence = 0;
     uint32_t viewpoint = 0;
     uint32_t temporalId = 0;
+    uint32_t fieldPicture = 0, bottomField = 0, fieldPairValid = 0;
+    int32_t fieldPairPoc = 0;
     int32_t poc = 0;
     uint32_t codec = 1; // 1 AVC, 2 HEVC
     uint32_t payloadType = 45;
@@ -1632,6 +1634,10 @@ struct C2StereoSourceStruct {
     C2FIELD(sequence, "sequence")
     C2FIELD(viewpoint, "viewpoint-id")
     C2FIELD(temporalId, "temporal-id")
+    C2FIELD(fieldPicture, "field-picture")
+    C2FIELD(bottomField, "bottom-field")
+    C2FIELD(fieldPairValid, "field-pair-valid")
+    C2FIELD(fieldPairPoc, "field-pair-poc")
     C2FIELD(poc, "picture-poc")
     C2FIELD(codec, "codec")
     C2FIELD(payloadType, "sei-payload-type")

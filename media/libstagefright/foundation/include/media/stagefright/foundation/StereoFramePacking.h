@@ -48,6 +48,20 @@ struct FramePacking {
     uint32_t persistence = 0;
     uint32_t upsampledAspectRatio = 0;
     bool cancel = false;
+
+    // Preserve parsed syntax above; ignore reserved flag meanings at the API edge.
+    FramePacking effectiveFlags(bool hevc) const {
+        FramePacking value = *this;
+        if (hevc || type != 2) value.fieldViews = 0;
+        if (type != 3 && type != 4) value.spatialFlipping = 0;
+        if (!value.spatialFlipping) value.frame0Flipped = 0;
+        if (type != 5) value.currentFrameIsFrame0 = 0;
+        if (type == 0 || type == 1 || type == 6) {
+            value.frame0SelfContained = value.frame1SelfContained = 0;
+        }
+        if (type == 6) for (auto &position : value.grid) position = 0;
+        return value;
+    }
 };
 
 // Input is exactly one unescaped SEI payload, without NAL or payload headers.

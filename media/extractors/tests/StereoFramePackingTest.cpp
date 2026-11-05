@@ -140,6 +140,27 @@ TEST(StereoFramePackingTest, RetainsIndependentGeometryFields) {
         EXPECT_EQ(hevc ? 1u : 0u, f.upsampledAspectRatio);
     }
 }
+TEST(StereoFramePackingTest, ReservedFlagMeaningsAreIgnoredAtTheApiEdge) {
+    for (bool hevc : {false, true}) {
+        FramePacking f;
+        ASSERT_EQ(ParseResult::VALID, parse(payload(hevc, 3, 2, 7, false, 1, true), hevc, &f));
+        EXPECT_EQ(1u, f.fieldViews); // original syntax remains available
+        auto semantic = f.effectiveFlags(hevc);
+        EXPECT_EQ(0u, semantic.fieldViews);
+        EXPECT_EQ(0u, semantic.currentFrameIsFrame0);
+        EXPECT_EQ(1u, semantic.spatialFlipping);
+    }
+}
+TEST(StereoFramePackingTest, AvcFieldViewsApplyOnlyToRowPacking) {
+    FramePacking f;
+    ASSERT_EQ(ParseResult::VALID, parse(payload(false, 2, 1, 7, false, 1, true), false, &f));
+    auto semantic = f.effectiveFlags(false);
+    EXPECT_EQ(1u, semantic.fieldViews);
+    EXPECT_EQ(0u, semantic.spatialFlipping);
+    EXPECT_EQ(0u, semantic.frame0Flipped);
+    EXPECT_EQ(0u, semantic.currentFrameIsFrame0);
+}
+
 TEST(StereoFramePackingTest, InvalidSamplingCombinationsAreMalformed) {
     auto checker = payload(false, 0);
     checker[1] &= ~0x40;

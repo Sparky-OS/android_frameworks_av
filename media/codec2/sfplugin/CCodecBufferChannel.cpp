@@ -2063,6 +2063,10 @@ bool CCodecBufferChannel::handleWork(
                 pictureFormat->removeEntryByName("stereo-sequence");
                 pictureFormat->removeEntryByName("stereo-viewpoint-id");
                 pictureFormat->removeEntryByName("stereo-temporal-id");
+                pictureFormat->removeEntryByName("stereo-field-picture");
+                pictureFormat->removeEntryByName("stereo-bottom-field");
+                pictureFormat->removeEntryByName("stereo-field-pair-valid");
+                pictureFormat->removeEntryByName("stereo-field-pair-poc");
                 pictureFormat->removeEntryByName("stereo-picture-poc");
                 pictureFormat->removeEntryByName("stereo-pair-valid");
                 pictureFormat->removeEntryByName("stereo-pair-poc");
@@ -2094,6 +2098,10 @@ bool CCodecBufferChannel::handleWork(
                     pictureFormat->setInt32("stereo-sequence", stereoInfo->sequence);
                     pictureFormat->setInt32("stereo-viewpoint-id", stereoInfo->viewpoint);
                     pictureFormat->setInt32("stereo-temporal-id", stereoInfo->temporalId);
+                    pictureFormat->setInt32("stereo-field-picture", stereoInfo->fieldPicture);
+                    pictureFormat->setInt32("stereo-bottom-field", stereoInfo->bottomField);
+                    pictureFormat->setInt32("stereo-field-pair-valid", stereoInfo->fieldPairValid);
+                    pictureFormat->setInt32("stereo-field-pair-poc", stereoInfo->fieldPairPoc);
                     pictureFormat->setInt32("stereo-picture-poc", stereoInfo->poc);
                     pictureFormat->setInt32("stereo-pair-valid", stereoInfo->pairValid);
                     pictureFormat->setInt32("stereo-pair-poc", stereoInfo->pairPoc);
