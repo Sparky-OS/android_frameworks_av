@@ -1984,12 +1984,56 @@ static void setStereoTrackGroups(const mkvparser::Tracks *tracks,
     }
 }
 
+static bool houseStereoLayout(const char *mark, stereo::Packing *packing, bool *quincunx) {
+    struct Named { const char *name; stereo::Layout layout; stereo::ViewOrder order; };
+    static constexpr Named exact[] = {
+        {"mono", stereo::MONO, stereo::UNSPECIFIED},
+        {"depthSideBySidePictureFirst", stereo::PICTURE_DEPTH_SIDE_BY_SIDE, stereo::PICTURE_FIRST},
+        {"depthSideBySideDepthFirst", stereo::PICTURE_DEPTH_SIDE_BY_SIDE, stereo::DEPTH_FIRST},
+        {"depthTopBottomPictureFirst", stereo::PICTURE_DEPTH_TOP_BOTTOM, stereo::PICTURE_FIRST},
+        {"depthTopBottomDepthFirst", stereo::PICTURE_DEPTH_TOP_BOTTOM, stereo::DEPTH_FIRST},
+        {"depthGraphicsTopBottom", stereo::PICTURE_DEPTH_GRAPHICS, stereo::PICTURE_FIRST},
+        {"depthBackgroundQuarters", stereo::PICTURE_DEPTH_BACKGROUND, stereo::PICTURE_FIRST},
+        {"depthSeparate", stereo::SEPARATE_DEPTH, stereo::PICTURE_FIRST},
+        {"anaglyphCyanRed", stereo::ANAGLYPH_CYAN_RED, stereo::LEFT_FIRST},
+        {"anaglyphRedLeft", stereo::ANAGLYPH_CYAN_RED, stereo::LEFT_FIRST},
+        {"anaglyphRedRight", stereo::ANAGLYPH_CYAN_RED, stereo::RIGHT_FIRST},
+        {"anaglyphGreenMagenta", stereo::ANAGLYPH_GREEN_MAGENTA, stereo::LEFT_FIRST},
+    };
+    for (const auto &entry : exact) if (!strcmp(mark, entry.name)) {
+        *packing = {entry.layout, entry.order}; return true;
+    }
+    static constexpr Named ordered[] = {
+        {"sideBySide", stereo::SIDE_BY_SIDE, stereo::UNSPECIFIED},
+        {"sideBySideQuincunx", stereo::SIDE_BY_SIDE, stereo::UNSPECIFIED},
+        {"topBottom", stereo::TOP_BOTTOM, stereo::UNSPECIFIED},
+        {"checkerboard", stereo::CHECKERBOARD, stereo::UNSPECIFIED},
+        {"rowInterleaved", stereo::ROW_INTERLEAVED, stereo::UNSPECIFIED},
+        {"columnInterleaved", stereo::COLUMN_INTERLEAVED, stereo::UNSPECIFIED},
+        {"frameSequential", stereo::TEMPORAL_INTERLEAVED, stereo::UNSPECIFIED},
+        {"blockLaced", stereo::LACED_VIEWS, stereo::UNSPECIFIED},
+        {"multiView", stereo::SEPARATE_VIEWS, stereo::UNSPECIFIED},
+    };
+    for (const auto &entry : ordered) {
+        const size_t length = strlen(entry.name);
+        if (strncmp(mark, entry.name, length)) continue;
+        const char *rest = mark + length;
+        if (strcmp(rest, "LeftFirst") && strcmp(rest, "RightFirst")) continue;
+        *packing = {entry.layout, !strcmp(rest, "LeftFirst") ? stereo::LEFT_FIRST : stereo::RIGHT_FIRST};
+        *quincunx = !strcmp(entry.name, "sideBySideQuincunx");
+        return true;
+    }
+    return false;
+}
+
 static void setStereoTags(const mkvparser::Tags *tags, const mkvparser::Track *track,
                           bool complete, AMediaFormat *meta) {
     std::vector<uint8_t> descriptor;
     appendStereoInteger(&descriptor, 1, 4);
     appendStereoInteger(&descriptor, 0, 4);
-    uint32_t count = 0;
+    uint32_t count = 0, layoutScope = 0;
+    const char *layoutMark = nullptr;
+    bool layoutConflict = false;
     for (; tags; tags = tags->GetNext()) {
         for (int i = 0; i < tags->GetTagCount(); ++i) {
             const auto *tag = tags->GetTag(i);
@@ -2008,8 +2052,13 @@ static void setStereoTags(const mkvparser::Tags *tags, const mkvparser::Track *t
                 const char *name = simple->GetTagName(), *value = simple->GetTagString();
                 if (!name || !value || (strcmp(name, "STEREO3D_LAYOUT")
                         && strcmp(name, "STEREO3D_DEPTH"))) continue;
+                const uint32_t scope = specific && !wildcard ? 2 : 1;
+                if (!strcmp(name, "STEREO3D_LAYOUT")) {
+                    if (scope > layoutScope) { layoutMark = value; layoutScope = scope; layoutConflict = false; }
+                    else if (scope == layoutScope && strcmp(layoutMark, value)) layoutConflict = true;
+                }
                 ++count;
-                appendStereoInteger(&descriptor, specific && !wildcard ? 2 : 1, 4);
+                appendStereoInteger(&descriptor, scope, 4);
                 appendStereoInteger(&descriptor, strlen(name), 4);
                 appendStereoInteger(&descriptor, strlen(value), 4);
                 descriptor.insert(descriptor.end(), name, name + strlen(name));
@@ -2020,6 +2069,16 @@ static void setStereoTags(const mkvparser::Tags *tags, const mkvparser::Track *t
     if (count) {
         for (size_t i = 0; i < 4; ++i) descriptor[4 + i] = count >> (8 * (3 - i));
         AMediaFormat_setBuffer(meta, "stereo-matroska-tags", descriptor.data(), descriptor.size());
+    }
+    int64_t nativeMode;
+    if (layoutMark && !AMediaFormat_getInt64(meta, "stereo-matroska-mode", &nativeMode)) {
+        stereo::Packing packing; bool quincunx = false;
+        if (!layoutConflict && houseStereoLayout(layoutMark, &packing, &quincunx)) {
+            AMediaFormat_setInt32(meta, "stereo-layout", packing.layout);
+            AMediaFormat_setInt32(meta, "stereo-view-order", packing.order);
+            if (quincunx) AMediaFormat_setInt32(meta, "stereo-quincunx", 1);
+            AMediaFormat_setString(meta, "stereo-metadata-source", "matroska-house-tag");
+        } else ALOGW("Unknown or conflicting STEREO3D_LAYOUT; no layout inferred");
     }
     int32_t layout = -1;
     void *group = nullptr; size_t groupSize = 0;

@@ -333,6 +333,59 @@ TEST(StereoMetadataTest, TargetScopeSurvivesTagArrayGrowth) {
     checkTags(tags, 1, expected);
 }
 
+void checkHouseLayout(const Bytes &entries, int64_t mode, int expectedLayout, int expectedOrder) {
+    Bytes file = matroska(mode, {}, 1, false, {}, element(0x1254c367, entries));
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    ASSERT_EQ(1u, extractor.countTracks());
+    AMediaFormat *format = AMediaFormat_new();
+    ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, 0, 0));
+    bridgeStereoFormat(format);
+    int32_t layout = -1, order = -1;
+    EXPECT_EQ(expectedLayout >= 0, AMediaFormat_getInt32(format, "stereo-layout", &layout));
+    EXPECT_EQ(expectedLayout, layout);
+    EXPECT_EQ(expectedLayout >= 0, AMediaFormat_getInt32(format, "stereo-view-order", &order));
+    EXPECT_EQ(expectedOrder, order);
+    AMediaFormat_delete(format);
+}
+TEST(StereoMetadataTest, EveryHouseDepthLayoutKeepsItsExactMeaning) {
+    const char *marks[] = {"depthSideBySidePictureFirst", "depthSideBySideDepthFirst",
+        "depthTopBottomPictureFirst", "depthTopBottomDepthFirst", "depthGraphicsTopBottom",
+        "depthBackgroundQuarters", "depthSeparate"};
+    const int layout[] = {12,12,13,13,14,15,16}, order[] = {3,4,3,4,3,3,3};
+    for (size_t i = 0; i < 7; ++i) checkHouseLayout(stereoTag("STEREO3D_LAYOUT", marks[i]), -1, layout[i], order[i]);
+}
+TEST(StereoMetadataTest, HouseMarkNeverOverridesNativeStereoMode) {
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "depthSideBySideDepthFirst"), 15, 12, 3);
+}
+TEST(StereoMetadataTest, UnknownHouseLayoutDoesNotInventPacking) {
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "futureDepthLayout"), -1, -1, -1);
+}
+TEST(StereoMetadataTest, ConflictingHouseLayoutsDoNotInventPacking) {
+    Bytes entries = stereoTag("STEREO3D_LAYOUT", "depthSideBySidePictureFirst");
+    append(entries, stereoTag("STEREO3D_LAYOUT", "depthTopBottomPictureFirst"));
+    checkHouseLayout(entries, -1, -1, -1);
+}
+TEST(StereoMetadataTest, TrackLayoutMarkOverridesGlobalMark) {
+    Bytes entries = stereoTag("STEREO3D_LAYOUT", "depthSideBySidePictureFirst");
+    append(entries, stereoTag("STEREO3D_LAYOUT", "depthTopBottomDepthFirst", element(0x63c5, number(1))));
+    checkHouseLayout(entries, -1, 13, 4);
+}
+TEST(StereoMetadataTest, NonDepthHouseVocabularyIsRetained) {
+    const char *names[] = {"sideBySide", "sideBySideQuincunx", "topBottom", "checkerboard",
+        "rowInterleaved", "columnInterleaved", "frameSequential", "blockLaced", "multiView"};
+    const int layout[] = {1,1,2,3,5,4,6,10,11};
+    for (size_t i = 0; i < 9; ++i) for (int order = 1; order <= 2; ++order) {
+        std::string mark = std::string(names[i]) + (order == 1 ? "LeftFirst" : "RightFirst");
+        checkHouseLayout(stereoTag("STEREO3D_LAYOUT", mark.c_str()), -1, layout[i], order);
+    }
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "mono"), -1, 0, 0);
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "anaglyphCyanRed"), -1, 8, 1);
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "anaglyphRedLeft"), -1, 8, 1);
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "anaglyphRedRight"), -1, 8, 2);
+    checkHouseLayout(stereoTag("STEREO3D_LAYOUT", "anaglyphGreenMagenta"), -1, 9, 1);
+}
+
 class MatroskaStereoMetadataTest : public testing::TestWithParam<int> {};
 
 TEST_P(MatroskaStereoMetadataTest, AssignedModeReachesTrackFormat) {
