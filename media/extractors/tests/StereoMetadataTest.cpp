@@ -55,7 +55,8 @@ Bytes element(uint32_t id, const Bytes &data) {
 }
 
 Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1,
-               bool forceStereoMode = false, const Bytes &blockPayload = {}) {
+               bool forceStereoMode = false, const Bytes &blockPayload = {},
+               const Bytes &tags = {}, bool tagsAfterCluster = false) {
     Bytes header;
     for (auto pair : {std::pair<uint32_t, uint64_t>(0x4286, 1), {0x42f7, 1},
                       {0x42f2, 4}, {0x42f3, 8}, {0x4287, 4}, {0x4285, 2}}) {
@@ -78,9 +79,11 @@ Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid =
     Bytes tracks = element(0xae, track);
     append(tracks, extraTracks);
     append(segment, element(0x1654ae6b, tracks));
+    if (!tagsAfterCluster) append(segment, tags);
     Bytes cluster = element(0xe7, number(0));
     append(cluster, element(0xa3, blockPayload.empty() ? Bytes{0x81, 0, 0, 0x80, 0} : blockPayload));
     append(segment, element(0x1f43b675, cluster));
+    if (tagsAfterCluster) append(segment, tags);
     append(file, element(0x18538067, segment));
     return file;
 }
@@ -224,6 +227,84 @@ void check(int64_t mode, int expectedLayout, int expectedOrder, bool forceStereo
               AMediaFormat_getInt64(format, "stereo-matroska-mode", &raw));
     EXPECT_EQ(mode, raw);
     AMediaFormat_delete(format);
+}
+
+Bytes stereoTag(const char *name, const char *value, const Bytes &targets = {}) {
+    Bytes simple = element(0x45a3, Bytes(name, name + strlen(name)));
+    append(simple, element(0x4487, Bytes(value, value + strlen(value))));
+    Bytes tag = element(0x63c0, targets);
+    append(tag, element(0x67c8, simple));
+    return element(0x7373, tag);
+}
+
+void checkTags(const Bytes &tagEntries, uint64_t uid,
+               const std::vector<std::pair<uint32_t, std::pair<std::string, std::string>>> &expected,
+               bool afterCluster = false) {
+    Bytes file = matroska(15, {}, uid, false, {}, element(0x1254c367, tagEntries), afterCluster);
+    CDataSource source = makeSource(file);
+    TestExtractor extractor(new DataSourceHelper(&source));
+    ASSERT_EQ(1u, extractor.countTracks());
+    AMediaFormat *format = AMediaFormat_new();
+    ASSERT_EQ(AMEDIA_OK, extractor.getTrackMetaData(format, 0, 0));
+    bridgeStereoFormat(format);
+    Bytes expectedBytes;
+    append(expectedBytes, {0, 0, 0, 1});
+    uint32_t count = expected.size();
+    append(expectedBytes, {uint8_t(count >> 24), uint8_t(count >> 16), uint8_t(count >> 8), uint8_t(count)});
+    auto u32 = [&](uint32_t n) {
+        append(expectedBytes, {uint8_t(n >> 24), uint8_t(n >> 16), uint8_t(n >> 8), uint8_t(n)});
+    };
+    for (const auto &entry : expected) {
+        u32(entry.first); u32(entry.second.first.size()); u32(entry.second.second.size());
+        expectedBytes.insert(expectedBytes.end(), entry.second.first.begin(), entry.second.first.end());
+        expectedBytes.insert(expectedBytes.end(), entry.second.second.begin(), entry.second.second.end());
+    }
+    void *data = nullptr; size_t size = 0;
+    ASSERT_EQ(!expected.empty(), AMediaFormat_getBuffer(format, "stereo-matroska-tags", &data, &size));
+    if (!expected.empty()) {
+        ASSERT_EQ(expectedBytes.size(), size);
+        EXPECT_EQ(0, memcmp(expectedBytes.data(), data, size));
+    }
+    AMediaFormat_delete(format);
+}
+
+TEST(StereoMetadataTest, DepthTagRetainsGlobalScopeAndRawConvention) {
+    checkTags(stereoTag("STEREO3D_DEPTH", "farness zero=0.25 range=120"), 1,
+              {{1, {"STEREO3D_DEPTH", "farness zero=0.25 range=120"}}});
+}
+TEST(StereoMetadataTest, DepthTagTracksUseFullUnsignedUid) {
+    checkTags(stereoTag("STEREO3D_DEPTH", "metric near=1 far=9000",
+                       element(0x63c5, number(UINT64_MAX))), UINT64_MAX,
+              {{2, {"STEREO3D_DEPTH", "metric near=1 far=9000"}}});
+}
+TEST(StereoMetadataTest, ForeignTrackDepthTagIsNotGlobal) {
+    checkTags(stereoTag("STEREO3D_DEPTH", "farness", element(0x63c5, number(2))), 1, {});
+}
+TEST(StereoMetadataTest, ZeroTrackTargetDepthTagAppliesToAllTracks) {
+    checkTags(stereoTag("STEREO3D_DEPTH", "inverseZ", element(0x63c5, number(0))), 1,
+              {{1, {"STEREO3D_DEPTH", "inverseZ"}}});
+}
+TEST(StereoMetadataTest, ChapterEditionAndAttachmentDepthTagsAreNotTrackWide) {
+    for (uint32_t kind : {0x63c4, 0x63c6, 0x63c9}) {
+        checkTags(stereoTag("STEREO3D_DEPTH", "farness", element(kind, number(1))), 1, {});
+    }
+}
+TEST(StereoMetadataTest, ConflictingDepthMarksRemainDistinctAtTheirScope) {
+    Bytes entries = stereoTag("STEREO3D_DEPTH", "nearness");
+    append(entries, stereoTag("STEREO3D_DEPTH", "farness", element(0x63c5, number(1))));
+    append(entries, stereoTag("STEREO3D_DEPTH", "inverseZ", element(0x63c5, number(1))));
+    checkTags(entries, 1, {{1, {"STEREO3D_DEPTH", "nearness"}},
+                         {2, {"STEREO3D_DEPTH", "farness"}},
+                         {2, {"STEREO3D_DEPTH", "inverseZ"}}});
+}
+TEST(StereoMetadataTest, EmptyDepthMarkRemainsPresentAndDoesNotBecomeDefault) {
+    checkTags(stereoTag("STEREO3D_DEPTH", ""), 1, {{1, {"STEREO3D_DEPTH", ""}}});
+}
+TEST(StereoMetadataTest, DepthAndLayoutTagsAfterClusterAreAvailableBeforeDecode) {
+    Bytes entries = stereoTag("STEREO3D_LAYOUT", "depthSideBySideDepthFirst");
+    append(entries, stereoTag("STEREO3D_DEPTH", "rangeInverse near=0.1 far=50"));
+    checkTags(entries, 1, {{1, {"STEREO3D_LAYOUT", "depthSideBySideDepthFirst"}},
+                         {1, {"STEREO3D_DEPTH", "rangeInverse near=0.1 far=50"}}}, true);
 }
 
 class MatroskaStereoMetadataTest : public testing::TestWithParam<int> {};
