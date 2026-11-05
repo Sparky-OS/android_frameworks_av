@@ -1984,8 +1984,56 @@ static void setStereoTrackGroups(const mkvparser::Tracks *tracks,
     }
 }
 
+static void setStereoTags(const mkvparser::Tags *tags, const mkvparser::Track *track,
+                          bool complete, AMediaFormat *meta) {
+    std::vector<uint8_t> descriptor;
+    appendStereoInteger(&descriptor, 1, 4);
+    appendStereoInteger(&descriptor, 0, 4);
+    uint32_t count = 0;
+    for (; tags; tags = tags->GetNext()) {
+        for (int i = 0; i < tags->GetTagCount(); ++i) {
+            const auto *tag = tags->GetTag(i);
+            bool trackTarget = false, wildcard = false, specific = false;
+            bool otherTarget = tag->HasUnknownTargets();
+            for (const auto &target : tag->GetTargets()) {
+                if (target.id == 0x63C5) {
+                    trackTarget = true;
+                    wildcard |= target.uid == 0;
+                    specific |= target.uid == track->GetUid() && target.uid != 0;
+                } else if (target.uid != 0) otherTarget = true;
+            }
+            if (otherTarget || (trackTarget && !wildcard && !specific)) continue;
+            for (int j = 0; j < tag->GetSimpleTagCount(); ++j) {
+                const auto *simple = tag->GetSimpleTag(j);
+                const char *name = simple->GetTagName(), *value = simple->GetTagString();
+                if (!name || !value || (strcmp(name, "STEREO3D_LAYOUT")
+                        && strcmp(name, "STEREO3D_DEPTH"))) continue;
+                ++count;
+                appendStereoInteger(&descriptor, specific && !wildcard ? 2 : 1, 4);
+                appendStereoInteger(&descriptor, strlen(name), 4);
+                appendStereoInteger(&descriptor, strlen(value), 4);
+                descriptor.insert(descriptor.end(), name, name + strlen(name));
+                descriptor.insert(descriptor.end(), value, value + strlen(value));
+            }
+        }
+    }
+    if (count) {
+        for (size_t i = 0; i < 4; ++i) descriptor[4 + i] = count >> (8 * (3 - i));
+        AMediaFormat_setBuffer(meta, "stereo-matroska-tags", descriptor.data(), descriptor.size());
+    }
+    int32_t layout = -1;
+    void *group = nullptr; size_t groupSize = 0;
+    if (count || (AMediaFormat_getInt32(meta, "stereo-layout", &layout)
+            && layout >= stereo::PICTURE_DEPTH_SIDE_BY_SIDE && layout <= stereo::SEPARATE_DEPTH)
+            || AMediaFormat_getBuffer(meta, "stereo-track-groups", &group, &groupSize)) {
+        AMediaFormat_setInt32(meta, "stereo-matroska-tags-complete", complete);
+    }
+}
+
 void MatroskaExtractor::addTracks() {
     const mkvparser::Tracks *tracks = mSegment->GetTracks();
+    const bool tagsComplete = !mIsLiveStreaming && mSegment->LoadTags() == 0;
+    if (!tagsComplete) ALOGW("Matroska stereo tag scan is incomplete; no depth convention inferred");
 
     AMediaFormat *meta = nullptr;
 
@@ -2161,6 +2209,7 @@ void MatroskaExtractor::addTracks() {
                 }
 
                 setStereoTrackGroups(tracks, track, meta);
+                setStereoTags(mSegment->GetTags(), track, tagsComplete, meta);
 
                 // setting display width/height is optional
                 const long long displayUnit = vtrack->GetDisplayUnit();

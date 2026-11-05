@@ -787,6 +787,7 @@ static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
     {
         { "stereo-lace-index", kKeyStereoLaceIndex },
         { "stereo-lace-count", kKeyStereoLaceCount },
+        { "stereo-matroska-tags-complete", kKeyStereoMatroskaTagsComplete },
         { "stereo-layout", kKeyStereoLayout },
         { "stereo-view-order", kKeyStereoViewOrder },
         { "stereo-st3d-mode", kKeyStereoSt3dMode },
@@ -820,6 +821,7 @@ static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
         { "stereo-stvi-data", kKeyStereoStviData },
         { "stereo-svmi-data", kKeyStereoSvmiData },
         { "stereo-sample-layouts", kKeyStereoSampleLayouts },
+        { "stereo-matroska-tags", kKeyStereoMatroskaTags },
         { "stereo-track-groups", kKeyStereoTrackGroups },
         { "stereo-track-uid", kKeyStereoTrackUid },
         { "stereo-vexu-data", kKeyStereoVexuData },

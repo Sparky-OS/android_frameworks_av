@@ -56,7 +56,7 @@ Bytes element(uint32_t id, const Bytes &data) {
 
 Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid = 1,
                bool forceStereoMode = false, const Bytes &blockPayload = {},
-               const Bytes &tags = {}, bool tagsAfterCluster = false) {
+               const Bytes &tags = {}, bool tagsAfterCluster = false, bool unknownCluster = false) {
     Bytes header;
     for (auto pair : {std::pair<uint32_t, uint64_t>(0x4286, 1), {0x42f7, 1},
                       {0x42f2, 4}, {0x42f3, 8}, {0x4287, 4}, {0x4285, 2}}) {
@@ -82,7 +82,11 @@ Bytes matroska(int64_t stereoMode, const Bytes &extraTracks = {}, uint64_t uid =
     if (!tagsAfterCluster) append(segment, tags);
     Bytes cluster = element(0xe7, number(0));
     append(cluster, element(0xa3, blockPayload.empty() ? Bytes{0x81, 0, 0, 0x80, 0} : blockPayload));
-    append(segment, element(0x1f43b675, cluster));
+    if (unknownCluster) {
+        append(segment, number(0x1f43b675));
+        segment.push_back(0xff);
+        append(segment, cluster);
+    } else append(segment, element(0x1f43b675, cluster));
     if (tagsAfterCluster) append(segment, tags);
     append(file, element(0x18538067, segment));
     return file;
@@ -239,8 +243,10 @@ Bytes stereoTag(const char *name, const char *value, const Bytes &targets = {}) 
 
 void checkTags(const Bytes &tagEntries, uint64_t uid,
                const std::vector<std::pair<uint32_t, std::pair<std::string, std::string>>> &expected,
-               bool afterCluster = false) {
-    Bytes file = matroska(15, {}, uid, false, {}, element(0x1254c367, tagEntries), afterCluster);
+               bool afterCluster = false, bool unknownCluster = false, bool multipleTags = false) {
+    Bytes file = matroska(15, {}, uid, false, {},
+                         multipleTags ? tagEntries : element(0x1254c367, tagEntries),
+                         afterCluster, unknownCluster);
     CDataSource source = makeSource(file);
     TestExtractor extractor(new DataSourceHelper(&source));
     ASSERT_EQ(1u, extractor.countTracks());
@@ -305,6 +311,26 @@ TEST(StereoMetadataTest, DepthAndLayoutTagsAfterClusterAreAvailableBeforeDecode)
     append(entries, stereoTag("STEREO3D_DEPTH", "rangeInverse near=0.1 far=50"));
     checkTags(entries, 1, {{1, {"STEREO3D_LAYOUT", "depthSideBySideDepthFirst"}},
                          {1, {"STEREO3D_DEPTH", "rangeInverse near=0.1 far=50"}}}, true);
+}
+
+TEST(StereoMetadataTest, PostClusterDepthTagsFollowUnknownSizeClusterBoundary) {
+    checkTags(stereoTag("STEREO3D_DEPTH", "farness"), 1,
+              {{1, {"STEREO3D_DEPTH", "farness"}}}, true, true);
+}
+TEST(StereoMetadataTest, MultipleTopLevelTagsAreAllPreserved) {
+    Bytes tags = element(0x1254c367, stereoTag("STEREO3D_DEPTH", "nearness"));
+    append(tags, element(0x1254c367, stereoTag("STEREO3D_DEPTH", "farness")));
+    checkTags(tags, 1, {{1, {"STEREO3D_DEPTH", "nearness"}},
+                        {1, {"STEREO3D_DEPTH", "farness"}}}, false, false, true);
+}
+TEST(StereoMetadataTest, TargetScopeSurvivesTagArrayGrowth) {
+    Bytes tags;
+    std::vector<std::pair<uint32_t, std::pair<std::string, std::string>>> expected;
+    for (int i = 0; i < 12; ++i) {
+        append(tags, stereoTag("STEREO3D_DEPTH", "farness", element(0x63c5, number(1))));
+        expected.push_back({2, {"STEREO3D_DEPTH", "farness"}});
+    }
+    checkTags(tags, 1, expected);
 }
 
 class MatroskaStereoMetadataTest : public testing::TestWithParam<int> {};
