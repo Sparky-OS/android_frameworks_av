@@ -17,6 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MPEG4Extractor"
 
+#include "StereoProjection.h"
 #include <ctype.h>
 #include <inttypes.h>
 #include <algorithm>
@@ -2792,6 +2793,32 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 }
             } else {
                 ALOGW("Unrecognized stvi source scheme %u or packing; no layout inferred", scheme);
+            }
+            break;
+        }
+
+        case FOURCC("sv3d"):
+        {
+            *offset += chunk_size;
+            if (mLastTrack == nullptr || mPath.size() != 8 || mPath[5] != FOURCC("stsd")) return OK;
+            if (mLastTrack->hasSv3d) return ERROR_MALFORMED;
+            mLastTrack->hasSv3d = true;
+            AMediaFormat_setInt32(mLastTrack->meta, "stereo-projection-status", 0);
+            if (chunk_data_size > 32 * 1024 * 1024) {
+                AMediaFormat_setString(mLastTrack->meta, "stereo-projection-error", "Projection metadata exceeds the bounded reader");
+                ALOGW("Spherical projection metadata exceeds the bounded reader");
+                break;
+            }
+            std::vector<uint8_t> raw(chunk_data_size), descriptor;
+            if (mDataSource->readAt(data_offset, raw.data(), raw.size()) != ssize_t(raw.size())) return ERROR_IO;
+            AMediaFormat_setBuffer(mLastTrack->meta, "stereo-sv3d-data", raw.data(), raw.size());
+            const char *error;
+            if (stereo::decodeStereoProjection(raw.data(), raw.size(), &descriptor, &error)) {
+                AMediaFormat_setBuffer(mLastTrack->meta, "stereo-projection-meshes", descriptor.data(), descriptor.size());
+                AMediaFormat_setInt32(mLastTrack->meta, "stereo-projection-status", 1);
+            } else {
+                AMediaFormat_setString(mLastTrack->meta, "stereo-projection-error", error);
+                ALOGW("Spherical source projection not decoded: %s", error);
             }
             break;
         }

@@ -83,6 +83,7 @@ private:
         bool includes_expensive_metadata;
         bool skipTrack;
         bool hasSt3d = false;
+        bool hasSv3d = false;
         bool hasStvi = false;
         bool hasSvmi = false;
         bool hasVexu = false;

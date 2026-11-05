@@ -738,6 +738,7 @@ static void parseAV1ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
 
 static std::vector<std::pair<const char *, uint32_t>> stringMappings {
     {
+        { "stereo-projection-error", kKeyStereoProjectionError },
         { "stereo-metadata-source", kKeyStereoMetadataSource },
         { "album", kKeyAlbum },
         { "albumartist", kKeyAlbumArtist },
@@ -788,6 +789,7 @@ static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
         { "stereo-lace-index", kKeyStereoLaceIndex },
         { "stereo-lace-count", kKeyStereoLaceCount },
         { "stereo-matroska-tags-complete", kKeyStereoMatroskaTagsComplete },
+        { "stereo-projection-status", kKeyStereoProjectionStatus },
         { "stereo-layout", kKeyStereoLayout },
         { "stereo-view-order", kKeyStereoViewOrder },
         { "stereo-st3d-mode", kKeyStereoSt3dMode },
@@ -822,6 +824,8 @@ static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
         { "stereo-svmi-data", kKeyStereoSvmiData },
         { "stereo-sample-layouts", kKeyStereoSampleLayouts },
         { "stereo-matroska-tags", kKeyStereoMatroskaTags },
+        { "stereo-projection-meshes", kKeyStereoProjectionMeshes },
+        { "stereo-sv3d-data", kKeyStereoSv3dData },
         { "stereo-track-groups", kKeyStereoTrackGroups },
         { "stereo-track-uid", kKeyStereoTrackUid },
         { "stereo-vexu-data", kKeyStereoVexuData },

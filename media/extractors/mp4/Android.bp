@@ -35,11 +35,14 @@ cc_library {
         "SampleIterator.cpp",
         "SampleTable.cpp",
         "StereoVideoInfo.cpp",
+        "StereoProjection.cpp",
     ],
 
     export_include_dirs: [
         "include",
     ],
+
+    shared_libs: ["libz"],
 
     static_libs: [
         "libstagefright_esds",
